@@ -33,6 +33,8 @@ router.post("/readings", (req: Request, res: Response) => {
         return res.status(400).json(result);
       }
       res.json({ success: true, data: result });
+    }).catch(err => {
+      res.status(500).json({ success: false, error: (err as Error).message });
     });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
@@ -65,6 +67,8 @@ router.post("/hours", (req: Request, res: Response) => {
         return res.status(400).json(result);
       }
       res.json({ success: true, data: result });
+    }).catch(err => {
+      res.status(500).json({ success: false, error: (err as Error).message });
     });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
@@ -97,6 +101,8 @@ router.post("/maintenance", (req: Request, res: Response) => {
         return res.status(400).json(result);
       }
       res.json({ success: true, data: result });
+    }).catch(err => {
+      res.status(500).json({ success: false, error: (err as Error).message });
     });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });

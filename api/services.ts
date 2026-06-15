@@ -199,7 +199,8 @@ export async function importReadings(
 
 export async function importHours(
   data: Omit<BusinessHours, "id" | "batchId">[],
-  batchId: string
+  batchId: string,
+  autoUpsertStores = true
 ) {
   const validation = validateHours(data, batchId);
   if (!validation.valid) {
@@ -208,6 +209,14 @@ export async function importHours(
       repo.createImportBatch("hours", data.length, "failed", JSON.stringify(validation.errors), batchId);
     }
     return { success: false, errors: validation.errors, warnings: validation.warnings };
+  }
+  if (autoUpsertStores) {
+    const storeIds = [...new Set(data.map(r => r.storeId))];
+    for (const storeId of storeIds) {
+      if (!repo.getStoreById(storeId)) {
+        repo.upsertStore({ name: storeId, area: 100, category: "默认" }, storeId);
+      }
+    }
   }
   const insertMany = db.prepare(
     "INSERT OR IGNORE INTO business_hours (id, store_id, date, open_hour, close_hour, batch_id) VALUES (?, ?, ?, ?, ?, ?)"
@@ -237,7 +246,8 @@ export async function importHours(
 
 export async function importMaintenance(
   data: Omit<MaintenanceRecord, "id" | "batchId">[],
-  batchId: string
+  batchId: string,
+  autoUpsertStores = true
 ) {
   const validation = validateMaintenance(data, batchId);
   if (!validation.valid) {
@@ -246,6 +256,14 @@ export async function importMaintenance(
       repo.createImportBatch("maintenance", data.length, "failed", JSON.stringify(validation.errors), batchId);
     }
     return { success: false, errors: validation.errors, warnings: validation.warnings };
+  }
+  if (autoUpsertStores) {
+    const storeIds = [...new Set(data.map(r => r.storeId))];
+    for (const storeId of storeIds) {
+      if (!repo.getStoreById(storeId)) {
+        repo.upsertStore({ name: storeId, area: 100, category: "默认" }, storeId);
+      }
+    }
   }
   const insertMany = db.prepare(
     "INSERT OR IGNORE INTO maintenance_records (id, store_id, date, type, description, batch_id) VALUES (?, ?, ?, ?, ?, ?)"
