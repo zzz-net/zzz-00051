@@ -622,3 +622,194 @@ export function getTrendData(storeId: string): TrendData {
     dailyData,
   };
 }
+
+export interface SystemStateSnapshot {
+  timestamp: string;
+  stores: { id: string; name: string }[];
+  storeCount: number;
+  totalMeterReadings: number;
+  totalBusinessHours: number;
+  totalMaintenanceRecords: number;
+  totalImportBatches: number;
+  anomalyCounts: {
+    pending: number;
+    confirmed: number;
+    falsePositive: number;
+    closed: number;
+    total: number;
+  };
+  anomalies: Array<{
+    id: string;
+    storeId: string;
+    date: string;
+    status: AnomalyStatus;
+    note: string | null;
+    reviewer: string | null;
+    attribution: string | null;
+    reviewedAt: string | null;
+  }>;
+  thresholdConfigs: ThresholdConfig[];
+  recentBatches: Array<{
+    id: string;
+    type: ImportBatchType;
+    status: ImportBatchStatus;
+    successCount: number;
+    failureCount: number;
+    createdAt: string;
+  }>;
+}
+
+export function getSystemStateSnapshot(): SystemStateSnapshot {
+  const now = new Date().toISOString();
+  const stores = getStores();
+  const pendingCount = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'pending'").get() as any).cnt;
+  const confirmedCount = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'confirmed'").get() as any).cnt;
+  const falsePositiveCount = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'false_positive'").get() as any).cnt;
+  const closedCount = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'closed'").get() as any).cnt;
+  const totalReadings = (db.prepare("SELECT COUNT(*) as cnt FROM meter_readings").get() as any).cnt;
+  const totalHours = (db.prepare("SELECT COUNT(*) as cnt FROM business_hours").get() as any).cnt;
+  const totalMaint = (db.prepare("SELECT COUNT(*) as cnt FROM maintenance_records").get() as any).cnt;
+  const totalBatches = (db.prepare("SELECT COUNT(*) as cnt FROM import_batches").get() as any).cnt;
+
+  const anomalies = db.prepare(`
+    SELECT id, store_id, date, status, note, reviewer, attribution, reviewed_at
+    FROM anomalies ORDER BY date DESC LIMIT 100
+  `).all() as any[];
+
+  const recentBatches = db.prepare(`
+    SELECT id, type, status, success_count, failure_count, created_at
+    FROM import_batches ORDER BY created_at DESC LIMIT 20
+  `).all() as any[];
+
+  return {
+    timestamp: now,
+    stores: stores.map(s => ({ id: s.id, name: s.name })),
+    storeCount: stores.length,
+    totalMeterReadings: totalReadings,
+    totalBusinessHours: totalHours,
+    totalMaintenanceRecords: totalMaint,
+    totalImportBatches: totalBatches,
+    anomalyCounts: {
+      pending: pendingCount,
+      confirmed: confirmedCount,
+      falsePositive: falsePositiveCount,
+      closed: closedCount,
+      total: pendingCount + confirmedCount + falsePositiveCount + closedCount,
+    },
+    anomalies: anomalies.map(a => ({
+      id: a.id,
+      storeId: a.store_id,
+      date: a.date,
+      status: a.status as AnomalyStatus,
+      note: a.note,
+      reviewer: a.reviewer,
+      attribution: a.attribution,
+      reviewedAt: a.reviewed_at,
+    })),
+    thresholdConfigs: getThresholdConfigs(),
+    recentBatches: recentBatches.map(b => ({
+      id: b.id,
+      type: b.type as ImportBatchType,
+      status: b.status as ImportBatchStatus,
+      successCount: b.success_count,
+      failureCount: b.failure_count,
+      createdAt: b.created_at,
+    })),
+  };
+}
+
+export interface CleanupResult {
+  deletedStores: number;
+  deletedReadings: number;
+  deletedHours: number;
+  deletedMaintenance: number;
+  deletedBatches: number;
+  deletedBatchRecords: number;
+  deletedAnomalies: number;
+  deletedReviewLogs: number;
+}
+
+export function cleanupByPrefix(prefix: string): CleanupResult {
+  const result: CleanupResult = {
+    deletedStores: 0,
+    deletedReadings: 0,
+    deletedHours: 0,
+    deletedMaintenance: 0,
+    deletedBatches: 0,
+    deletedBatchRecords: 0,
+    deletedAnomalies: 0,
+    deletedReviewLogs: 0,
+  };
+
+  const likePattern = `${prefix}%`;
+
+  const affectedStoreIds = db.prepare(
+    "SELECT id FROM stores WHERE id LIKE ?"
+  ).all(likePattern) as { id: string }[];
+
+  const affectedBatchIds = db.prepare(
+    "SELECT id FROM import_batches WHERE id LIKE ?"
+  ).all(likePattern) as { id: string }[];
+
+  const storeIdList = affectedStoreIds.map(s => s.id);
+  const batchIdList = affectedBatchIds.map(b => b.id);
+
+  if (storeIdList.length > 0) {
+    const placeholders = storeIdList.map(() => "?").join(",");
+
+    result.deletedReadings = db.prepare(
+      `DELETE FROM meter_readings WHERE store_id IN (${placeholders})`
+    ).run(...storeIdList).changes;
+
+    result.deletedHours = db.prepare(
+      `DELETE FROM business_hours WHERE store_id IN (${placeholders})`
+    ).run(...storeIdList).changes;
+
+    result.deletedMaintenance = db.prepare(
+      `DELETE FROM maintenance_records WHERE store_id IN (${placeholders})`
+    ).run(...storeIdList).changes;
+
+    const anomalyIds = db.prepare(
+      `SELECT id FROM anomalies WHERE store_id IN (${placeholders})`
+    ).all(...storeIdList) as { id: string }[];
+
+    if (anomalyIds.length > 0) {
+      const aPlaceholders = anomalyIds.map(() => "?").join(",");
+      result.deletedReviewLogs = db.prepare(
+        `DELETE FROM review_logs WHERE anomaly_id IN (${aPlaceholders})`
+      ).run(...anomalyIds.map(a => a.id)).changes;
+      result.deletedAnomalies = db.prepare(
+        `DELETE FROM anomalies WHERE store_id IN (${placeholders})`
+      ).run(...storeIdList).changes;
+    }
+
+    result.deletedStores = db.prepare(
+      `DELETE FROM stores WHERE id IN (${placeholders})`
+    ).run(...storeIdList).changes;
+  }
+
+  if (batchIdList.length > 0) {
+    const placeholders = batchIdList.map(() => "?").join(",");
+    result.deletedBatchRecords = db.prepare(
+      `DELETE FROM import_batch_records WHERE batch_id IN (${placeholders})`
+    ).run(...batchIdList).changes;
+    result.deletedBatches = db.prepare(
+      `DELETE FROM import_batches WHERE id IN (${placeholders})`
+    ).run(...batchIdList).changes;
+  }
+
+  return result;
+}
+
+export function cleanupAll(): CleanupResult {
+  return {
+    deletedStores: db.prepare("DELETE FROM stores").run().changes,
+    deletedReadings: db.prepare("DELETE FROM meter_readings").run().changes,
+    deletedHours: db.prepare("DELETE FROM business_hours").run().changes,
+    deletedMaintenance: db.prepare("DELETE FROM maintenance_records").run().changes,
+    deletedBatches: db.prepare("DELETE FROM import_batches").run().changes,
+    deletedBatchRecords: db.prepare("DELETE FROM import_batch_records").run().changes,
+    deletedReviewLogs: db.prepare("DELETE FROM review_logs").run().changes,
+    deletedAnomalies: db.prepare("DELETE FROM anomalies").run().changes,
+  };
+}

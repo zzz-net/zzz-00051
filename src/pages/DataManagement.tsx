@@ -225,7 +225,16 @@ function ImportSection() {
       if (result.failureCount !== undefined) details.push(`失败 ${result.failureCount} 条`);
       if (result.anomalyCount) details.push(`生成 ${result.anomalyCount} 条异常`);
       if (result.conflicts && result.conflicts.length > 0) {
-        toast("warning", "导入完成（存在冲突）", `${details.join("，")}\n${result.conflicts.slice(0, 3).join("\n")}`);
+        const conflictLines = result.conflicts.slice(0, 3).map((c: any) => {
+          if (typeof c === "string") return `• ${c}`;
+          const parts: string[] = [];
+          if (c.storeId) parts.push(`门店${c.storeId}`);
+          if (c.date) parts.push(c.date);
+          if (c.existingBatchId) parts.push(`已有批次${c.existingBatchId.slice(0, 8)}`);
+          return `• ${parts.join(" | ") || c}`;
+        });
+        const more = result.conflicts.length > 3 ? `\n... 还有 ${result.conflicts.length - 3} 条冲突，展开批次详情查看` : "";
+        toast("warning", `导入完成（${result.conflicts.length}条冲突已跳过）`, `${details.join("，")}\n${conflictLines.join("\n")}${more}`);
       } else {
         toast("success", "导入成功", details.join("，"));
       }
@@ -546,9 +555,23 @@ function BatchHistory() {
     setExpandedIds(newSet);
   };
 
-  const handleExport = (batchId: string, format: "csv" | "json") => {
-    exportBatch(batchId, format);
-    toast("success", "导出成功", `批次数据已导出为 ${format.toUpperCase()}`);
+  const handleExport = async (batchId: string, format: "csv" | "json") => {
+    try {
+      const res = await fetch(`/api/import/batches/${batchId}/export?format=${format}`);
+      if (!res.ok) throw new Error("导出失败");
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filenameMatch ? filenameMatch[1] : `batch-${batchId.slice(0, 8)}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast("success", "批次导出成功", `文件：${a.download}`);
+    } catch (err) {
+      toast("error", "导出失败", (err as Error).message);
+    }
   };
 
   const handleRetry = (batch: ImportBatch) => {

@@ -78,16 +78,35 @@ router.get("/export", (req: Request, res: Response) => {
     if (storeId) filters.storeId = storeId as string;
     if (startDate) filters.startDate = startDate as string;
     if (endDate) filters.endDate = endDate as string;
-    const data = service.getAnomaliesForExport(filters);
+    const exportResult = service.getAnomaliesForExport(filters);
+    const { exportMeta, records } = exportResult;
+
+    const filterParts: string[] = [];
+    if (filters.status) filterParts.push(`status-${filters.status}`);
+    if (filters.storeId) filterParts.push(`store-${filters.storeId.slice(0, 8)}`);
+    if (filters.startDate) filterParts.push(`from-${filters.startDate}`);
+    if (filters.endDate) filterParts.push(`to-${filters.endDate}`);
+    const filterSuffix = filterParts.length > 0 ? `_${filterParts.join("_")}` : "";
     const dateStr = new Date().toISOString().slice(0, 10);
+
     if (format === "json") {
       res.setHeader("Content-Type", "application/json");
-      res.setHeader("Content-Disposition", `attachment; filename="anomalies_${dateStr}.json"`);
-      res.send(JSON.stringify(data, null, 2));
+      res.setHeader("Content-Disposition", `attachment; filename="anomalies_${dateStr}${filterSuffix}.json"`);
+      res.send(JSON.stringify(exportResult, null, 2));
     } else {
-      const csv = service.toCSV(data);
+      const metaHeaderRows = [
+        [`# 导出时间: ${exportMeta.exportedAt}`],
+        [`# 记录总数: ${exportMeta.recordCount}`],
+        [`# 筛选条件: ${JSON.stringify(exportMeta.filters)}`],
+        [`# 状态汇总: ${JSON.stringify(exportMeta.summary.byStatus)}`],
+        [`# 门店汇总: ${JSON.stringify(exportMeta.summary.byStore)}`],
+        [],
+      ];
+      const metaCSV = metaHeaderRows.map(r => r.join(",")).join("\n");
+      const dataCSV = service.toCSV(records);
+      const csv = metaCSV + "\n" + dataCSV;
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="anomalies_${dateStr}.csv"`);
+      res.setHeader("Content-Disposition", `attachment; filename="anomalies_${dateStr}${filterSuffix}.csv"`);
       res.send("\ufeff" + csv);
     }
   } catch (err) {

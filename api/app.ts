@@ -13,6 +13,7 @@ import thresholdRoutes from './routes/thresholds.js'
 import anomalyRoutes from './routes/anomalies.js'
 import trendRoutes from './routes/trends.js'
 import storeRoutes from './routes/stores.js'
+import verificationRoutes from './routes/verification.js'
 import { seedSampleData } from './seedData.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -36,6 +37,7 @@ app.use('/api/thresholds', thresholdRoutes)
 app.use('/api/anomalies', anomalyRoutes)
 app.use('/api/trends', trendRoutes)
 app.use('/api/stores', storeRoutes)
+app.use('/api/verification', verificationRoutes)
 
 app.use(
   '/api/health',

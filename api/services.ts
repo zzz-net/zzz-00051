@@ -647,36 +647,62 @@ export function getBatchExportData(batchId: string, format: "csv" | "json"): str
     batchCreatedAt: detail.createdAt,
   }));
 
+  const exportedAt = new Date().toISOString();
+  const batchMeta = {
+    id: detail.id,
+    type: detail.type,
+    fileType: detail.fileType,
+    fileName: detail.fileName,
+    recordCount: detail.recordCount,
+    successCount: detail.successCount,
+    failureCount: detail.failureCount,
+    status: detail.status,
+    errors: detail.errors ? JSON.parse(detail.errors) : null,
+    coverageStartDate: detail.coverageStartDate,
+    coverageEndDate: detail.coverageEndDate,
+    parentBatchId: detail.parentBatchId,
+    parentBatch: detail.parentBatch
+      ? { id: detail.parentBatch.id, status: detail.parentBatch.status, createdAt: detail.parentBatch.createdAt }
+      : null,
+    childBatches: detail.childBatches.map((b) => ({
+      id: b.id,
+      status: b.status,
+      successCount: b.successCount,
+      failureCount: b.failureCount,
+      createdAt: b.createdAt,
+    })),
+    createdAt: detail.createdAt,
+  };
+
+  const exportMeta = {
+    exportedAt,
+    batchId,
+    recordCount: rows.length,
+    successCount: detail.successCount,
+    failureCount: detail.failureCount,
+    duplicateCount: rows.filter((r) => r.isDuplicate === "是").length,
+  };
+
   if (format === "csv") {
-    return toCSV(rows);
+    const metaHeaderRows = [
+      [`# 导出时间: ${exportedAt}`],
+      [`# 批次ID: ${detail.id}`],
+      [`# 批次类型: ${detail.type}`],
+      [`# 批次状态: ${detail.status}`],
+      [`# 记录总数: ${detail.recordCount}`],
+      [`# 成功数: ${detail.successCount}`],
+      [`# 失败数: ${detail.failureCount}`],
+      [`# 覆盖日期: ${detail.coverageStartDate || "-"} ~ ${detail.coverageEndDate || "-"}`],
+      [],
+    ];
+    const metaCSV = metaHeaderRows.map((r) => r.join(",")).join("\n");
+    const dataCSV = toCSV(rows);
+    return metaCSV + "\n" + dataCSV;
   }
   return JSON.stringify(
     {
-      batch: {
-        id: detail.id,
-        type: detail.type,
-        fileType: detail.fileType,
-        fileName: detail.fileName,
-        recordCount: detail.recordCount,
-        successCount: detail.successCount,
-        failureCount: detail.failureCount,
-        status: detail.status,
-        errors: detail.errors ? JSON.parse(detail.errors) : null,
-        coverageStartDate: detail.coverageStartDate,
-        coverageEndDate: detail.coverageEndDate,
-        parentBatchId: detail.parentBatchId,
-        parentBatch: detail.parentBatch
-          ? { id: detail.parentBatch.id, status: detail.parentBatch.status, createdAt: detail.parentBatch.createdAt }
-          : null,
-        childBatches: detail.childBatches.map((b) => ({
-          id: b.id,
-          status: b.status,
-          successCount: b.successCount,
-          failureCount: b.failureCount,
-          createdAt: b.createdAt,
-        })),
-        createdAt: detail.createdAt,
-      },
+      exportMeta,
+      batch: batchMeta,
       records: rows,
     },
     null,
@@ -752,11 +778,22 @@ export function reviewAnomaly(id: string, payload: ReviewPayload): Anomaly {
   );
 }
 
+export interface ExportMeta {
+  exportMeta: {
+    exportedAt: string;
+    recordCount: number;
+    filters: any;
+    summary: {
+      byStatus: Record<string, number>;
+      byStore: Record<string, number>;
+    };
+  };
+}
+
 export function getAnomaliesForExport(filters?: any) {
   const anomalies = repo.getAnomalies(filters);
   const stores = new Map(repo.getStores().map(s => [s.id, s]));
 
-  // 按门店预构建索引，保证 O(1) 查源数据，形成完整证据链
   const storeIds = [...new Set(anomalies.map(a => a.storeId))];
   type ReadingByDate = Map<string, number>;
   type HoursByDate = Map<string, { openHour: number; closeHour: number }>;
@@ -769,23 +806,17 @@ export function getAnomaliesForExport(filters?: any) {
   const thresholdByStore = new Map<string, ThresholdForStore>();
 
   for (const sid of storeIds) {
-    // 源读数（累计值）
     const rds = repo.getMeterReadings(sid);
     readingsByStore.set(sid, new Map(rds.map(r => [r.date, r.reading])));
-    // 营业时长
     const hrs = repo.getBusinessHours(sid);
     hoursByStore.set(sid, new Map(hrs.map(h => [h.date, { openHour: h.openHour, closeHour: h.closeHour }])));
-    // 维修记录：hasMaintenanceOnDate 返回整条对象
     const maintMap: MaintByDate = new Map();
-    // 用同一时间范围内的所有维修记录建索引，避免每条异常查一次 DB
     const allMaint = (repo as any).getMaintenanceRecords?.(sid) || [];
     for (const m of allMaint) maintMap.set(m.date, { type: m.type, description: m.description });
     maintByStore.set(sid, maintMap);
-    // 阈值（判断依据）
     thresholdByStore.set(sid, repo.getThresholdForStore(sid));
   }
 
-  // 辅助：给定门店+日期，找最近一个已存在读数日期作为"前日"（处理空缺）
   function getPrevReading(sid: string, date: string): number | null {
     const m = readingsByStore.get(sid);
     if (!m) return null;
@@ -795,7 +826,7 @@ export function getAnomaliesForExport(filters?: any) {
     return m.get(dates[idx - 1]) ?? null;
   }
 
-  return anomalies.map(a => {
+  const records = anomalies.map(a => {
     const sid = a.storeId;
     const store = stores.get(sid);
     const readings = readingsByStore.get(sid);
@@ -819,7 +850,6 @@ export function getAnomaliesForExport(filters?: any) {
       storeName: store?.name || sid,
       storeId: sid,
       date: a.date,
-      // ===== 证据链：源数据 =====
       readingPrev,
       readingCurr,
       dailyConsumption: a.dailyConsumption,
@@ -829,13 +859,11 @@ export function getAnomaliesForExport(filters?: any) {
       hasMaintenance,
       maintenanceType,
       maintenanceDesc,
-      // ===== 证据链：判断依据 =====
       thresholdDailyLimit: th.dailyLimit,
       thresholdFluctuationRate: th.fluctuationRate,
       hoursCorrectionFactor: th.hoursCorrectionFactor,
       expectedConsumption: a.expectedConsumption,
       deviationRate: a.deviationRate,
-      // ===== 结论与复核 =====
       status: a.status,
       attribution: a.attribution,
       note: a.note,
@@ -845,6 +873,27 @@ export function getAnomaliesForExport(filters?: any) {
       createdAt: a.createdAt,
     };
   });
+
+  const byStatus: Record<string, number> = {};
+  const byStore: Record<string, number> = {};
+  for (const a of anomalies) {
+    byStatus[a.status] = (byStatus[a.status] || 0) + 1;
+    const sname = stores.get(a.storeId)?.name || a.storeId;
+    byStore[sname] = (byStore[sname] || 0) + 1;
+  }
+
+  return {
+    exportMeta: {
+      exportedAt: new Date().toISOString(),
+      recordCount: records.length,
+      filters: filters || {},
+      summary: {
+        byStatus,
+        byStore,
+      },
+    },
+    records,
+  };
 }
 
 export function toCSV(rows: any[]): string {

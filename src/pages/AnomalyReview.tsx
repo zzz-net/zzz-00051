@@ -189,15 +189,20 @@ function ExportButton() {
 
       const res = await fetch(`/api/anomalies/export?${params.toString()}`);
       if (!res.ok) throw new Error("导出失败");
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const dateStr = new Date().toISOString().slice(0, 10);
-      a.download = `anomalies_${dateStr}.${format}`;
+      a.download = filenameMatch ? filenameMatch[1] : `anomalies_${new Date().toISOString().slice(0, 10)}.${format}`;
       a.click();
       URL.revokeObjectURL(url);
-      toast("success", "导出成功", `已导出为 ${format.toUpperCase()} 格式`);
+      const filterDesc = Object.entries(anomalyFilters)
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ");
+      toast("success", "导出成功", `文件：${a.download}${filterDesc ? `\n筛选：${filterDesc}` : ""}`);
     } catch (err) {
       toast("error", "导出失败", (err as Error).message);
     }

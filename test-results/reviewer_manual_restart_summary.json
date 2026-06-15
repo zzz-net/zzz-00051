@@ -1,0 +1,23 @@
+{
+  "run": "review-1781502853699",
+  "original_server_pid": 18104,
+  "restarted_server_pid": 11444,
+  "import_success_counts": [
+    10,
+    10,
+    1
+  ],
+  "anomaly_count": 2,
+  "reviewed_anomaly_id": "95f6e532-a0e5-4ab4-96a9-33eedf8bdfe5",
+  "export_filters": {
+    "status": "confirmed",
+    "storeId": "review-1781502853699-B"
+  },
+  "export_reviewer": "reviewer",
+  "invalid_review_status": 400,
+  "invalid_review_message": "\r\n{\r\n  \"success\": false,\r\n  \"error\": \"\\u5907\\u6CE8\\u4E0D\\u80FD\\u4E3A\\u7A7A\"\r\n}",
+  "persisted_status": "confirmed",
+  "persisted_reviewer": "reviewer",
+  "persisted_note": "reviewer restart persistence check",
+  "cleanup_deleted": 50
+}

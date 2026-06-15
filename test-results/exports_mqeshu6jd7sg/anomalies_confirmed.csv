@@ -1,0 +1,11 @@
+# 导出时间: 2026-06-15T05:45:39.112Z
+# 记录总数: 4
+# 筛选条件: {"status":"confirmed"}
+# 状态汇总: {"confirmed":4}
+# 门店汇总: {"门店A - 旗舰正常店":1,"RVW-C-1781494210520":1,"RVW-P-1781493976703":1,"repro-mqeshu6jd7sg-B":1}
+
+id,storeName,storeId,date,readingPrev,readingCurr,dailyConsumption,openHour,closeHour,businessHours,hasMaintenance,maintenanceType,maintenanceDesc,thresholdDailyLimit,thresholdFluctuationRate,hoursCorrectionFactor,expectedConsumption,deviationRate,status,attribution,note,evidenceSource,reviewer,reviewedAt,createdAt
+b0465575-56ad-40f8-bc37-48df5216835b,门店A - 旗舰正常店,47f9f7c0-cded-474e-85de-a283afbeade6,2099-01-01,1350,100,-1250,,,12,false,,,150,30,1,150,-933.3333333333334,confirmed,读数倒退,经现场检查，确认空调机组故障导致能耗突增,现场照片/20260604_1430.jpg,张管理员,2026-06-15T04:57:39.981Z,2026-06-15T04:29:15.825Z
+72688eb6-a7a9-430c-aa26-4da8eb9a1f8d,RVW-C-1781494210520,RVW-C-1781494210520,2026-08-30,2100,2300,200,8,20,12,true,空调维修,夜间维修导致用电波动,100,20,1,100,100,confirmed,维修干扰,复核通过，保留异常结论,维修工单#RVW,reviewer,2026-06-15T03:30:10.699Z,2026-06-15T03:30:10.693Z
+b20115c1-b2b8-46ac-913a-3bc39d6c6c5e,RVW-P-1781493976703,RVW-P-1781493976703,2026-08-27,1100,1300,200,8,20,12,false,,,100,20,1,100,100,confirmed,,经现场检查，确认空调机组故障导致能耗突增,现场照片/20260604_1430.jpg,张管理员,2026-06-15T05:08:59.745Z,2026-06-15T05:02:50.478Z
+c8eb2d4a-654a-4a69-8502-649a7ff4e93a,repro-mqeshu6jd7sg-B,repro-mqeshu6jd7sg-B,2026-07-18,1374.2,1364.2,-10,8,22,14,false,,,150,30,1,175,-105.71428571428572,confirmed,设备故障,验证脚本自动复核：空调故障导致能耗突增,test-evidence/repro_verification.jpg,验证脚本,2026-06-15T05:45:39.074Z,2026-06-15T05:45:39.039Z
