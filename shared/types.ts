@@ -146,3 +146,55 @@ export interface ReviewPayload {
   evidenceSource: string;
   reviewer: string;
 }
+
+export type CockpitStepStatus = "pending" | "running" | "passed" | "failed" | "skipped";
+
+export interface CockpitStepResult {
+  step: string;
+  label: string;
+  status: CockpitStepStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  detail: string | null;
+  error: string | null;
+}
+
+export type CockpitRunStatus = "idle" | "running" | "completed" | "failed";
+
+export interface CockpitRun {
+  id: string;
+  prefix: string;
+  status: CockpitRunStatus;
+  steps: CockpitStepResult[];
+  snapshotBefore: string | null;
+  snapshotAfter: string | null;
+  isolationCleaned: boolean;
+  importConflictHandled: boolean;
+  filterPreserved: boolean;
+  reviewPreserved: boolean;
+  exportComplete: boolean;
+  exportComparisonMatch: boolean;
+  logs: string[];
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface CockpitCheckpoint {
+  id: string;
+  runId: string;
+  step: string;
+  stateJson: string;
+  createdAt: string;
+}
+
+export interface CockpitSummary {
+  totalRuns: number;
+  lastRunStatus: CockpitRunStatus | null;
+  lastRunAt: string | null;
+  isolationVerified: boolean;
+  importConflictFree: boolean;
+  filterReviewPreserved: boolean;
+  exportConsistent: boolean;
+  recentRuns: CockpitRun[];
+}
+

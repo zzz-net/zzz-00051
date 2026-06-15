@@ -18,6 +18,11 @@ import type {
   BatchFilter,
   DashboardStats,
   TrendData,
+  CockpitRun,
+  CockpitRunStatus,
+  CockpitStepResult,
+  CockpitCheckpoint,
+  CockpitSummary,
 } from "../shared/types.js";
 
 export function getStores(): Store[] {
@@ -811,5 +816,133 @@ export function cleanupAll(): CleanupResult {
     deletedBatchRecords: db.prepare("DELETE FROM import_batch_records").run().changes,
     deletedReviewLogs: db.prepare("DELETE FROM review_logs").run().changes,
     deletedAnomalies: db.prepare("DELETE FROM anomalies").run().changes,
+  };
+}
+
+function rowToCockpitRun(row: any): CockpitRun {
+  return {
+    id: row.id,
+    prefix: row.prefix,
+    status: row.status as CockpitRunStatus,
+    steps: JSON.parse(row.steps_json || "[]") as CockpitStepResult[],
+    snapshotBefore: row.snapshot_before,
+    snapshotAfter: row.snapshot_after,
+    isolationCleaned: row.isolation_cleaned === 1,
+    importConflictHandled: row.import_conflict_handled === 1,
+    filterPreserved: row.filter_preserved === 1,
+    reviewPreserved: row.review_preserved === 1,
+    exportComplete: row.export_complete === 1,
+    exportComparisonMatch: row.export_comparison_match === 1,
+    logs: JSON.parse(row.logs_json || "[]") as string[],
+    createdAt: row.created_at,
+    finishedAt: row.finished_at,
+  };
+}
+
+export function createCockpitRun(prefix: string): CockpitRun {
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO cockpit_runs (id, prefix, status, steps_json, logs_json, created_at)
+     VALUES (?, ?, 'running', '[]', '[]', ?)`
+  ).run(id, prefix, now);
+  return getCockpitRunById(id)!;
+}
+
+export function getCockpitRunById(id: string): CockpitRun | null {
+  const row = db.prepare("SELECT * FROM cockpit_runs WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  return rowToCockpitRun(row);
+}
+
+export function updateCockpitRun(id: string, updates: Partial<{
+  status: CockpitRunStatus;
+  steps: CockpitStepResult[];
+  snapshotBefore: string;
+  snapshotAfter: string;
+  isolationCleaned: boolean;
+  importConflictHandled: boolean;
+  filterPreserved: boolean;
+  reviewPreserved: boolean;
+  exportComplete: boolean;
+  exportComparisonMatch: boolean;
+  logs: string[];
+  finishedAt: string;
+}>): void {
+  const existing = getCockpitRunById(id);
+  if (!existing) return;
+  const sets: string[] = [];
+  const vals: any[] = [];
+  if (updates.status !== undefined) { sets.push("status = ?"); vals.push(updates.status); }
+  if (updates.steps !== undefined) { sets.push("steps_json = ?"); vals.push(JSON.stringify(updates.steps)); }
+  if (updates.snapshotBefore !== undefined) { sets.push("snapshot_before = ?"); vals.push(updates.snapshotBefore); }
+  if (updates.snapshotAfter !== undefined) { sets.push("snapshot_after = ?"); vals.push(updates.snapshotAfter); }
+  if (updates.isolationCleaned !== undefined) { sets.push("isolation_cleaned = ?"); vals.push(updates.isolationCleaned ? 1 : 0); }
+  if (updates.importConflictHandled !== undefined) { sets.push("import_conflict_handled = ?"); vals.push(updates.importConflictHandled ? 1 : 0); }
+  if (updates.filterPreserved !== undefined) { sets.push("filter_preserved = ?"); vals.push(updates.filterPreserved ? 1 : 0); }
+  if (updates.reviewPreserved !== undefined) { sets.push("review_preserved = ?"); vals.push(updates.reviewPreserved ? 1 : 0); }
+  if (updates.exportComplete !== undefined) { sets.push("export_complete = ?"); vals.push(updates.exportComplete ? 1 : 0); }
+  if (updates.exportComparisonMatch !== undefined) { sets.push("export_comparison_match = ?"); vals.push(updates.exportComparisonMatch ? 1 : 0); }
+  if (updates.logs !== undefined) { sets.push("logs_json = ?"); vals.push(JSON.stringify(updates.logs)); }
+  if (updates.finishedAt !== undefined) { sets.push("finished_at = ?"); vals.push(updates.finishedAt); }
+  if (sets.length === 0) return;
+  vals.push(id);
+  db.prepare(`UPDATE cockpit_runs SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+}
+
+export function getCockpitRuns(limit = 20): CockpitRun[] {
+  const rows = db.prepare("SELECT * FROM cockpit_runs ORDER BY created_at DESC LIMIT ?").all(limit) as any[];
+  return rows.map(rowToCockpitRun);
+}
+
+export function saveCockpitCheckpoint(runId: string, step: string, stateJson: string): CockpitCheckpoint {
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO cockpit_checkpoints (id, run_id, step, state_json, created_at) VALUES (?, ?, ?, ?, ?)`
+  ).run(id, runId, step, stateJson, now);
+  return { id, runId, step, stateJson, createdAt: now };
+}
+
+export function getCockpitCheckpoints(runId: string): CockpitCheckpoint[] {
+  const rows = db.prepare(
+    "SELECT * FROM cockpit_checkpoints WHERE run_id = ? ORDER BY created_at ASC"
+  ).all(runId) as any[];
+  return rows.map(row => ({
+    id: row.id,
+    runId: row.run_id,
+    step: row.step,
+    stateJson: row.state_json,
+    createdAt: row.created_at,
+  }));
+}
+
+export function getCockpitSummary(): CockpitSummary {
+  const totalRuns = (db.prepare("SELECT COUNT(*) as cnt FROM cockpit_runs").get() as any).cnt;
+  const lastRun = db.prepare("SELECT * FROM cockpit_runs ORDER BY created_at DESC LIMIT 1").get() as any;
+  const recentRuns = getCockpitRuns(10);
+
+  let isolationVerified = false;
+  let importConflictFree = false;
+  let filterReviewPreserved = false;
+  let exportConsistent = false;
+
+  if (lastRun) {
+    const run = rowToCockpitRun(lastRun);
+    isolationVerified = run.isolationCleaned;
+    importConflictFree = run.importConflictHandled;
+    filterReviewPreserved = run.filterPreserved && run.reviewPreserved;
+    exportConsistent = run.exportComplete && run.exportComparisonMatch;
+  }
+
+  return {
+    totalRuns,
+    lastRunStatus: lastRun ? (lastRun.status as CockpitRunStatus) : null,
+    lastRunAt: lastRun ? lastRun.created_at : null,
+    isolationVerified,
+    importConflictFree,
+    filterReviewPreserved,
+    exportConsistent,
+    recentRuns,
   };
 }

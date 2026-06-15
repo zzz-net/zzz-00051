@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Settings,
   User,
+  Plane,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
@@ -16,6 +17,7 @@ export default function Sidebar() {
     { path: "/", label: "总览看板", icon: LayoutDashboard },
     { path: "/data", label: "数据管理", icon: Database },
     { path: "/anomaly", label: "异常复盘", icon: AlertTriangle },
+    { path: "/cockpit", label: "验收驾驶舱", icon: Plane },
   ];
 
   return (

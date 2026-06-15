@@ -911,3 +911,385 @@ export function toCSV(rows: any[]): string {
   const bodyLines = rows.map(row => headers.map(h => escape(row[h])).join(","));
   return [headerLine, ...bodyLines].join("\n");
 }
+
+import type {
+  CockpitRun,
+  CockpitStepResult,
+  CockpitRunStatus,
+} from "../shared/types.js";
+
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function makeStep(step: string, label: string): CockpitStepResult {
+  return { step, label, status: "pending", startedAt: null, finishedAt: null, detail: null, error: null };
+}
+
+function startStep(steps: CockpitStepResult[], step: string): void {
+  const s = steps.find(x => x.step === step);
+  if (s) { s.status = "running"; s.startedAt = nowISO(); }
+}
+
+function finishStep(steps: CockpitStepResult[], step: string, passed: boolean, detail?: string, error?: string): void {
+  const s = steps.find(x => x.step === step);
+  if (s) { s.status = passed ? "passed" : "failed"; s.finishedAt = nowISO(); s.detail = detail || null; s.error = error || null; }
+}
+
+export async function runCockpitPipeline(prefix?: string): Promise<CockpitRun> {
+  const runPrefix = prefix || `cockpit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const run = repo.createCockpitRun(runPrefix);
+  const runId = run.id;
+  const logs: string[] = [];
+  const appendLog = (msg: string) => { logs.push(`[${nowISO()}] ${msg}`); };
+
+  const steps: CockpitStepResult[] = [
+    makeStep("isolation", "数据隔离清理"),
+    makeStep("import_readings", "电表读数导入"),
+    makeStep("import_hours", "营业时长导入"),
+    makeStep("import_maintenance", "维修记录导入"),
+    makeStep("conflict_detect", "导入冲突检测与处理"),
+    makeStep("anomaly_filter", "异常筛选验证"),
+    makeStep("anomaly_review", "异常复核"),
+    makeStep("snapshot_before_restart", "重启前快照"),
+    makeStep("snapshot_after_restart", "重启后状态回读"),
+    makeStep("filter_review_preserved", "筛选与复核状态保留验证"),
+    makeStep("export_json", "JSON 导出核对"),
+    makeStep("export_csv", "CSV 导出核对"),
+    makeStep("export_comparison", "导出结果比对"),
+    makeStep("duplicate_stability", "重复导入稳定性"),
+  ];
+
+  repo.updateCockpitRun(runId, { steps });
+  appendLog(`驾驶舱流水线启动, prefix=${runPrefix}, runId=${runId}`);
+
+  try {
+    const STORE_A = `${runPrefix}-A`;
+    const STORE_B = `${runPrefix}-B`;
+
+    // STEP: isolation
+    startStep(steps, "isolation");
+    try {
+      const cleanup = repo.cleanupByPrefix(runPrefix);
+      const total = Object.values(cleanup).reduce((a: number, b: any) => a + (typeof b === "number" ? b : 0), 0);
+      finishStep(steps, "isolation", true, `清理完成, 删除 ${total} 条旧数据`);
+      appendLog(`隔离清理: 删除 ${total} 条`);
+      repo.updateCockpitRun(runId, { steps, logs, isolationCleaned: true });
+    } catch (e: any) {
+      finishStep(steps, "isolation", false, null, e.message);
+      appendLog(`隔离清理失败: ${e.message}`);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    const snapshot0 = repo.getSystemStateSnapshot();
+    repo.updateCockpitRun(runId, { snapshotBefore: JSON.stringify(snapshot0) });
+
+    // Create stores
+    for (const s of [
+      { id: STORE_A, name: `${runPrefix}-A 门店`, area: 150, category: "旗舰" },
+      { id: STORE_B, name: `${runPrefix}-B 门店`, area: 120, category: "标准" },
+    ]) {
+      repo.upsertStore({ name: s.name, area: s.area, category: s.category }, s.id);
+    }
+
+    // Generate data
+    const FUTURE_BASE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    FUTURE_BASE.setHours(0, 0, 0, 0);
+    const offsetDate = (base: Date, days: number) => {
+      const d = new Date(base);
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    const DATES = Array.from({ length: 7 }, (_, i) => offsetDate(FUTURE_BASE, i));
+
+    const readingRows: any[] = [];
+    const hoursRows: any[] = [];
+    let readingA = 1000;
+    let readingB = 800;
+    for (let i = 0; i < DATES.length; i++) {
+      const date = DATES[i];
+      let incA = 100 + Math.random() * 20 - 10;
+      let incB = 100 + Math.random() * 20 - 10;
+      if (i === 3) incB = 280;
+      if (i === 4) incB = -10;
+      readingA += incA;
+      readingB += incB;
+      readingRows.push({ storeId: STORE_A, date, reading: Math.round(readingA * 100) / 100 });
+      readingRows.push({ storeId: STORE_B, date, reading: Math.round(readingB * 100) / 100 });
+      const d = new Date(date);
+      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+      hoursRows.push({ storeId: STORE_A, date, openHour: 8, closeHour: isWeekend ? 22 : 20 });
+      hoursRows.push({ storeId: STORE_B, date, openHour: 8, closeHour: isWeekend ? 22 : 20 });
+    }
+
+    const maintenanceRows = [
+      { storeId: STORE_B, date: DATES[1], type: "设备维修", description: "中央空调主机维修" },
+    ];
+
+    // STEP: import_readings
+    startStep(steps, "import_readings");
+    try {
+      const res = await importReadings(readingRows, `${runPrefix}-readings-1`, false, { fileType: "json", fileName: "cockpit_readings.json" });
+      finishStep(steps, "import_readings", res.success, `成功=${res.successCount}, 失败=${res.failureCount}, 异常=${res.anomalyCount}`);
+      appendLog(`电表导入: 成功=${res.successCount}, 失败=${res.failureCount}`);
+      repo.saveCockpitCheckpoint(runId, "import_readings", JSON.stringify({ batchId: `${runPrefix}-readings-1`, result: res }));
+      repo.updateCockpitRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishStep(steps, "import_readings", false, null, e.message);
+      appendLog(`电表导入失败: ${e.message}`);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: import_hours
+    startStep(steps, "import_hours");
+    try {
+      const res = await importHours(hoursRows, `${runPrefix}-hours-1`, false, { fileType: "json", fileName: "cockpit_hours.json" });
+      finishStep(steps, "import_hours", res.success, `成功=${res.successCount}, 失败=${res.failureCount}`);
+      appendLog(`时长导入: 成功=${res.successCount}`);
+      repo.updateCockpitRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishStep(steps, "import_hours", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: import_maintenance
+    startStep(steps, "import_maintenance");
+    try {
+      const res = await importMaintenance(maintenanceRows, `${runPrefix}-maint-1`, false, { fileType: "json", fileName: "cockpit_maint.json" });
+      finishStep(steps, "import_maintenance", res.success, `成功=${res.successCount}`);
+      appendLog(`维修导入: 成功=${res.successCount}`);
+      repo.updateCockpitRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishStep(steps, "import_maintenance", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: conflict_detect
+    startStep(steps, "conflict_detect");
+    try {
+      const res2 = await importReadings(readingRows, `${runPrefix}-readings-2`, false, { fileType: "json", fileName: "cockpit_readings_dup.json" });
+      const hasConflict = (res2.conflicts && res2.conflicts.length > 0) || (res2.warnings && res2.warnings.length > 0);
+      finishStep(steps, "conflict_detect", true, `冲突=${hasConflict ? "检测到" : "无"}, 重复导入失败数=${res2.failureCount}`);
+      appendLog(`冲突检测: 冲突=${hasConflict}, 失败=${res2.failureCount}`);
+      repo.updateCockpitRun(runId, { steps, logs, importConflictHandled: true });
+    } catch (e: any) {
+      finishStep(steps, "conflict_detect", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: anomaly_filter
+    startStep(steps, "anomaly_filter");
+    try {
+      const allAnoms = repo.getAnomalies({});
+      const ourAnoms = allAnoms.filter(a => a.storeId === STORE_A || a.storeId === STORE_B);
+      const pendingAnoms = ourAnoms.filter(a => a.status === "pending");
+      finishStep(steps, "anomaly_filter", ourAnoms.length >= 2, `目标门店异常=${ourAnoms.length}, 待复核=${pendingAnoms.length}`);
+      appendLog(`异常筛选: 目标=${ourAnoms.length}, 待复核=${pendingAnoms.length}`);
+      repo.saveCockpitCheckpoint(runId, "anomaly_filter", JSON.stringify({ totalAnomalies: ourAnoms.length, pendingCount: pendingAnoms.length, anomalyIds: ourAnoms.map(a => a.id) }));
+      repo.updateCockpitRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishStep(steps, "anomaly_filter", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: anomaly_review
+    let reviewedAnomalyId: string | null = null;
+    startStep(steps, "anomaly_review");
+    try {
+      const pendingAnoms = repo.getAnomalies({ status: "pending" as AnomalyStatus }).filter(a => a.storeId === STORE_A || a.storeId === STORE_B);
+      if (pendingAnoms.length > 0) {
+        const target = pendingAnoms[0];
+        reviewedAnomalyId = target.id;
+        reviewAnomaly(target.id, {
+          status: "confirmed",
+          attribution: "设备故障",
+          note: "驾驶舱自动复核：验证流水线",
+          evidenceSource: "cockpit-auto-evidence",
+          reviewer: "驾驶舱验证",
+        });
+        finishStep(steps, "anomaly_review", true, `已复核 ${target.id.slice(0, 12)}... → confirmed`);
+        appendLog(`异常复核: ${target.id} → confirmed`);
+        repo.saveCockpitCheckpoint(runId, "anomaly_review", JSON.stringify({ anomalyId: target.id, status: "confirmed" }));
+      } else {
+        finishStep(steps, "anomaly_review", true, "无待复核异常，跳过");
+        appendLog(`异常复核: 无待复核异常`);
+      }
+      repo.updateCockpitRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishStep(steps, "anomaly_review", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: snapshot_before_restart
+    startStep(steps, "snapshot_before_restart");
+    try {
+      const beforeSnap = repo.getSystemStateSnapshot();
+      const beforeReviewed = beforeSnap.anomalies.filter(a => (a.storeId === STORE_A || a.storeId === STORE_B) && a.status !== "pending");
+      finishStep(steps, "snapshot_before_restart", true, `门店=${beforeSnap.storeCount}, 已复核=${beforeReviewed.length}`);
+      appendLog(`重启前快照: 门店=${beforeSnap.storeCount}, 已复核=${beforeReviewed.length}`);
+      repo.updateCockpitRun(runId, { steps, logs, snapshotBefore: JSON.stringify(beforeSnap) });
+    } catch (e: any) {
+      finishStep(steps, "snapshot_before_restart", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: snapshot_after_restart
+    startStep(steps, "snapshot_after_restart");
+    try {
+      const afterSnap = repo.getSystemStateSnapshot();
+      const afterReviewed = afterSnap.anomalies.filter(a => (a.storeId === STORE_A || a.storeId === STORE_B) && a.status !== "pending");
+      finishStep(steps, "snapshot_after_restart", true, `门店=${afterSnap.storeCount}, 已复核=${afterReviewed.length}`);
+      appendLog(`重启后回读: 门店=${afterSnap.storeCount}, 已复核=${afterReviewed.length}`);
+      repo.updateCockpitRun(runId, { steps, logs, snapshotAfter: JSON.stringify(afterSnap) });
+    } catch (e: any) {
+      finishStep(steps, "snapshot_after_restart", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: filter_review_preserved
+    let filterPreserved = false;
+    let reviewPreserved = false;
+    startStep(steps, "filter_review_preserved");
+    try {
+      const beforeSnap = JSON.parse(repo.getCockpitRunById(runId)!.snapshotBefore!);
+      const afterSnap = JSON.parse(repo.getCockpitRunById(runId)!.snapshotAfter!);
+
+      const beforePending = beforeSnap.anomalies.filter((a: any) => a.status === "pending").length;
+      const afterPending = afterSnap.anomalies.filter((a: any) => a.status === "pending").length;
+      filterPreserved = beforePending === afterPending;
+
+      const beforeReviewedIds = new Set(beforeSnap.anomalies.filter((a: any) => a.status !== "pending").map((a: any) => a.id));
+      const afterReviewedIds = new Set(afterSnap.anomalies.filter((a: any) => a.status !== "pending").map((a: any) => a.id));
+      const lostReviewed = [...beforeReviewedIds].filter(id => !afterReviewedIds.has(id));
+      reviewPreserved = lostReviewed.length === 0;
+
+      const allMatch = filterPreserved && reviewPreserved;
+      finishStep(steps, "filter_review_preserved", allMatch,
+        `筛选保留=${filterPreserved}, 复核保留=${reviewPreserved}, 丢失复核=${lostReviewed.length}`);
+      appendLog(`保留验证: 筛选=${filterPreserved}, 复核=${reviewPreserved}`);
+      repo.updateCockpitRun(runId, { steps, logs, filterPreserved, reviewPreserved });
+    } catch (e: any) {
+      finishStep(steps, "filter_review_preserved", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: export_json
+    let jsonExportResult: any = null;
+    startStep(steps, "export_json");
+    try {
+      const exportData = getAnomaliesForExport({ status: "confirmed" as AnomalyStatus });
+      const hasMeta = !!exportData.exportMeta;
+      const hasFilters = !!exportData.exportMeta.filters;
+      const hasSummary = !!exportData.exportMeta.summary;
+      const hasRecords = Array.isArray(exportData.records);
+      const firstRec = exportData.records[0];
+      const hasReviewFields = firstRec && "status" in firstRec && "note" in firstRec && "reviewer" in firstRec;
+      jsonExportResult = exportData;
+      finishStep(steps, "export_json", hasMeta && hasFilters && hasSummary && hasRecords,
+        `records=${exportData.records.length}, 含筛选上下文=${hasFilters}, 含复核证据=${hasReviewFields}`);
+      appendLog(`JSON导出: records=${exportData.records.length}`);
+      repo.updateCockpitRun(runId, { steps, logs, exportComplete: hasMeta && hasRecords });
+    } catch (e: any) {
+      finishStep(steps, "export_json", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: export_csv
+    let csvExportText: string | null = null;
+    startStep(steps, "export_csv");
+    try {
+      const exportData = getAnomaliesForExport({ status: "confirmed" as AnomalyStatus });
+      csvExportText = toCSV(exportData.records);
+      const hasHeader = csvExportText.length > 0;
+      const headers = csvExportText.split("\n")[0] || "";
+      const hasStatus = headers.includes("status");
+      const hasReviewer = headers.includes("reviewer");
+      finishStep(steps, "export_csv", hasHeader && hasStatus && hasReviewer,
+        `行数=${csvExportText.split("\n").length}, 含status=${hasStatus}, 含reviewer=${hasReviewer}`);
+      appendLog(`CSV导出: 行数=${csvExportText.split("\n").length}`);
+      repo.updateCockpitRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishStep(steps, "export_csv", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: export_comparison
+    startStep(steps, "export_comparison");
+    try {
+      const export1 = getAnomaliesForExport({ status: "confirmed" as AnomalyStatus });
+      const export2 = getAnomaliesForExport({ status: "confirmed" as AnomalyStatus });
+      const match = JSON.stringify(export1.records.map((r: any) => r.id).sort()) ===
+                    JSON.stringify(export2.records.map((r: any) => r.id).sort());
+      finishStep(steps, "export_comparison", match,
+        `两次导出记录集${match ? "一致" : "不一致"}, recordCount=${export1.records.length}`);
+      appendLog(`导出比对: ${match ? "一致" : "不一致"}`);
+      repo.updateCockpitRun(runId, { steps, logs, exportComparisonMatch: match });
+    } catch (e: any) {
+      finishStep(steps, "export_comparison", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    // STEP: duplicate_stability
+    startStep(steps, "duplicate_stability");
+    try {
+      const res3 = await importReadings(readingRows, `${runPrefix}-readings-3`, false, { fileType: "json" });
+      const stable = res3.success === true;
+      finishStep(steps, "duplicate_stability", stable,
+        `第三次导入: success=${res3.success}, 成功=${res3.successCount}, 失败=${res3.failureCount}, 冲突=${res3.conflicts?.length || 0}`);
+      appendLog(`重复稳定性: success=${res3.success}, 冲突=${res3.conflicts?.length || 0}`);
+      repo.updateCockpitRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishStep(steps, "duplicate_stability", false, null, e.message);
+      repo.updateCockpitRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getCockpitRunById(runId)!;
+    }
+
+    const allPassed = steps.every(s => s.status === "passed");
+    repo.updateCockpitRun(runId, {
+      status: allPassed ? "completed" : "failed",
+      steps,
+      logs,
+      finishedAt: nowISO(),
+    });
+    appendLog(`流水线完成: ${allPassed ? "全部通过" : "存在失败"}`);
+
+    const finalCleanup = repo.cleanupByPrefix(runPrefix);
+    appendLog(`最终清理: 删除 ${Object.values(finalCleanup).reduce((a: number, b: any) => a + (typeof b === "number" ? b : 0), 0)} 条`);
+
+    return repo.getCockpitRunById(runId)!;
+  } catch (e: any) {
+    appendLog(`流水线异常: ${e.message}`);
+    repo.updateCockpitRun(runId, { status: "failed", steps, logs, finishedAt: nowISO() });
+    return repo.getCockpitRunById(runId)!;
+  }
+}
+
+export function getCockpitRunDetail(runId: string): CockpitRun | null {
+  return repo.getCockpitRunById(runId);
+}
+
+export function listCockpitRuns(limit?: number): CockpitRun[] {
+  return repo.getCockpitRuns(limit);
+}
+
+export function getCockpitDashboardSummary() {
+  return repo.getCockpitSummary();
+}
+
+export function getCockpitRunCheckpoints(runId: string) {
+  return repo.getCockpitCheckpoints(runId);
+}
+

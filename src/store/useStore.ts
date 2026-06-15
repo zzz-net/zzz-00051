@@ -12,6 +12,9 @@ import type {
   TrendData,
   ReviewLog,
   BatchFilter,
+  CockpitRun,
+  CockpitSummary,
+  CockpitCheckpoint,
 } from "../../shared/types";
 
 const LS_BATCH_FILTERS = "dm_batch_filters";
@@ -84,6 +87,16 @@ interface AppState {
   retryImport: (parentBatchId: string, correctedContent: string, newBatchId?: string) => Promise<any>;
   exportBatch: (batchId: string, format: "csv" | "json") => void;
   recalculateAnomalies: () => Promise<void>;
+  cockpitSummary: CockpitSummary | null;
+  cockpitCurrentRun: CockpitRun | null;
+  cockpitRuns: CockpitRun[];
+  cockpitCheckpoints: CockpitCheckpoint[];
+  cockpitRunning: boolean;
+  fetchCockpitSummary: () => Promise<void>;
+  startCockpitRun: (prefix?: string) => Promise<CockpitRun>;
+  fetchCockpitRuns: () => Promise<void>;
+  fetchCockpitRunDetail: (runId: string) => Promise<void>;
+  fetchCockpitCheckpoints: (runId: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -361,6 +374,69 @@ export const useStore = create<AppState>((set, get) => ({
       throw e;
     } finally {
       set({ loading: false });
+    }
+  },
+
+  cockpitSummary: null,
+  cockpitCurrentRun: null,
+  cockpitRuns: [],
+  cockpitCheckpoints: [],
+  cockpitRunning: false,
+
+  fetchCockpitSummary: async () => {
+    try {
+      const data = await apiCall<CockpitSummary>("/cockpit/summary");
+      set({ cockpitSummary: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  startCockpitRun: async (prefix?: string) => {
+    set({ cockpitRunning: true, loading: true });
+    try {
+      const body: any = {};
+      if (prefix) body.prefix = prefix;
+      const data = await apiCall<CockpitRun>("/cockpit/run", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      set({ cockpitCurrentRun: data });
+      await get().fetchCockpitSummary();
+      await get().fetchCockpitRuns();
+      return data;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      throw e;
+    } finally {
+      set({ cockpitRunning: false, loading: false });
+    }
+  },
+
+  fetchCockpitRuns: async () => {
+    try {
+      const data = await apiCall<CockpitRun[]>("/cockpit/runs");
+      set({ cockpitRuns: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  fetchCockpitRunDetail: async (runId: string) => {
+    try {
+      const data = await apiCall<CockpitRun>(`/cockpit/runs/${runId}`);
+      set({ cockpitCurrentRun: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  fetchCockpitCheckpoints: async (runId: string) => {
+    try {
+      const data = await apiCall<CockpitCheckpoint[]>(`/cockpit/runs/${runId}/checkpoints`);
+      set({ cockpitCheckpoints: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
     }
   },
 }));

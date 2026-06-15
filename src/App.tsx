@@ -3,6 +3,7 @@ import AppLayout from "@/components/Layout/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import DataManagement from "@/pages/DataManagement";
 import AnomalyReview from "@/pages/AnomalyReview";
+import CockpitPage from "@/pages/CockpitPage";
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/data" element={<DataManagement />} />
           <Route path="/anomaly" element={<AnomalyReview />} />
+          <Route path="/cockpit" element={<CockpitPage />} />
         </Routes>
       </AppLayout>
     </Router>

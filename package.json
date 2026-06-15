@@ -11,7 +11,8 @@
     "check": "tsc --noEmit",
     "server:dev": "nodemon",
     "dev": "concurrently \"npm run client:dev\" \"npm run server:dev\"",
-    "test:repro": "node test_repro_verification.mjs"
+    "test:repro": "node test_repro_verification.mjs",
+    "test:cockpit": "node test_cockpit_pipeline.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

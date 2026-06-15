@@ -123,6 +123,36 @@ db.exec(`
     FOREIGN KEY (batch_id) REFERENCES import_batches(id)
   );
 
+  CREATE TABLE IF NOT EXISTS cockpit_runs (
+    id TEXT PRIMARY KEY,
+    prefix TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'idle',
+    steps_json TEXT NOT NULL DEFAULT '[]',
+    snapshot_before TEXT,
+    snapshot_after TEXT,
+    isolation_cleaned INTEGER NOT NULL DEFAULT 0,
+    import_conflict_handled INTEGER NOT NULL DEFAULT 0,
+    filter_preserved INTEGER NOT NULL DEFAULT 0,
+    review_preserved INTEGER NOT NULL DEFAULT 0,
+    export_complete INTEGER NOT NULL DEFAULT 0,
+    export_comparison_match INTEGER NOT NULL DEFAULT 0,
+    logs_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS cockpit_checkpoints (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    step TEXT NOT NULL,
+    state_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES cockpit_runs(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cockpit_runs_prefix ON cockpit_runs(prefix);
+  CREATE INDEX IF NOT EXISTS idx_cockpit_checkpoints_run ON cockpit_checkpoints(run_id);
+
   CREATE INDEX IF NOT EXISTS idx_batch_records_batch ON import_batch_records(batch_id);
 
   CREATE INDEX IF NOT EXISTS idx_readings_store_date ON meter_readings(store_id, date);
