@@ -305,6 +305,16 @@ export function updateAnomalyReview(
   return getAnomalyById(id)!;
 }
 
+export function deletePendingAnomaliesForStore(storeId: string): number {
+  const res = db.prepare("DELETE FROM anomalies WHERE store_id = ? AND status = 'pending'").run(storeId);
+  return res.changes;
+}
+
+export function deleteAllPendingAnomalies(): number {
+  const res = db.prepare("DELETE FROM anomalies WHERE status = 'pending'").run();
+  return res.changes;
+}
+
 export function getReviewLogs(anomalyId: string): ReviewLog[] {
   const rows = db.prepare(
     `SELECT id, anomaly_id, from_status, to_status, note, evidence_source, reviewer, created_at

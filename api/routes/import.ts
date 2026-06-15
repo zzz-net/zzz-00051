@@ -23,10 +23,7 @@ router.post("/readings", (req: Request, res: Response) => {
           details: parsed.errors,
         });
       }
-      data = parsed.data.map((row: any) => ({
-        ...row,
-        reading: Number(row.reading),
-      }));
+      data = parsed.data.slice();
     } else {
       data = typeof fileContent === "string" ? JSON.parse(fileContent) : fileContent;
     }
@@ -58,11 +55,7 @@ router.post("/hours", (req: Request, res: Response) => {
           details: parsed.errors,
         });
       }
-      data = parsed.data.map((row: any) => ({
-        ...row,
-        openHour: Number(row.openHour),
-        closeHour: Number(row.closeHour),
-      }));
+      data = parsed.data.slice();
     } else {
       data = typeof fileContent === "string" ? JSON.parse(fileContent) : fileContent;
     }

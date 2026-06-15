@@ -32,13 +32,25 @@ export function validateReadings(data: any[], batchId: string): ValidationResult
   }
   data.forEach((row, idx) => {
     const line = idx + 2;
-    if (!row.storeId) errors.push(`第${line}行: 缺少必填字段 storeId`);
-    if (!row.date) errors.push(`第${line}行: 缺少必填字段 date`);
-    if (row.reading === undefined || row.reading === null) errors.push(`第${line}行: 缺少必填字段 reading`);
-    if (row.reading !== undefined && row.reading !== null && isNaN(Number(row.reading))) {
-      errors.push(`第${line}行: reading 必须是数字`);
+    // —— 必填字段：原始值空、null、undefined 全部拦截
+    if (row.storeId === undefined || row.storeId === null || String(row.storeId).trim() === "") {
+      errors.push(`第${line}行: 缺少必填字段 storeId`);
     }
-    if (row.date && !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
+    if (row.date === undefined || row.date === null || String(row.date).trim() === "") {
+      errors.push(`第${line}行: 缺少必填字段 date`);
+    }
+    const readingRaw = row.reading;
+    if (readingRaw === undefined || readingRaw === null || (typeof readingRaw === "string" && readingRaw.trim() === "")) {
+      errors.push(`第${line}行: 缺少必填字段 reading（空值禁止入库）`);
+    } else {
+      const n = Number(readingRaw);
+      if (isNaN(n)) {
+        errors.push(`第${line}行: reading 必须是有效数字`);
+      } else if (n < 0) {
+        errors.push(`第${line}行: reading 不能为负数（电表读数为累计值）`);
+      }
+    }
+    if (row.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(row.date).trim())) {
       errors.push(`第${line}行: date 格式必须为 YYYY-MM-DD`);
     }
   });
@@ -66,18 +78,27 @@ export function validateHours(data: any[], batchId: string): ValidationResult {
     errors.push("导入数据为空");
     return { valid: false, errors, warnings };
   }
+  const isEmpty = (v: any) => v === undefined || v === null || (typeof v === "string" && v.trim() === "");
   data.forEach((row, idx) => {
     const line = idx + 2;
-    if (!row.storeId) errors.push(`第${line}行: 缺少必填字段 storeId`);
-    if (!row.date) errors.push(`第${line}行: 缺少必填字段 date`);
-    if (row.openHour === undefined || row.openHour === null) errors.push(`第${line}行: 缺少必填字段 openHour`);
-    if (row.closeHour === undefined || row.closeHour === null) errors.push(`第${line}行: 缺少必填字段 closeHour`);
-    if (row.openHour !== undefined && isNaN(Number(row.openHour))) errors.push(`第${line}行: openHour 必须是数字`);
-    if (row.closeHour !== undefined && isNaN(Number(row.closeHour))) errors.push(`第${line}行: closeHour 必须是数字`);
-    if (row.openHour !== undefined && row.closeHour !== undefined && Number(row.closeHour) <= Number(row.openHour)) {
-      errors.push(`第${line}行: closeHour 必须大于 openHour`);
+    if (isEmpty(row.storeId)) errors.push(`第${line}行: 缺少必填字段 storeId`);
+    if (isEmpty(row.date)) errors.push(`第${line}行: 缺少必填字段 date`);
+    if (isEmpty(row.openHour)) {
+      errors.push(`第${line}行: 缺少必填字段 openHour`);
+    } else if (isNaN(Number(row.openHour))) {
+      errors.push(`第${line}行: openHour 必须是有效数字`);
     }
-    if (row.date && !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
+    if (isEmpty(row.closeHour)) {
+      errors.push(`第${line}行: 缺少必填字段 closeHour`);
+    } else if (isNaN(Number(row.closeHour))) {
+      errors.push(`第${line}行: closeHour 必须是有效数字`);
+    }
+    if (!isEmpty(row.openHour) && !isEmpty(row.closeHour) && !isNaN(Number(row.openHour)) && !isNaN(Number(row.closeHour))) {
+      if (Number(row.closeHour) <= Number(row.openHour)) {
+        errors.push(`第${line}行: closeHour 必须大于 openHour`);
+      }
+    }
+    if (!isEmpty(row.date) && !/^\d{4}-\d{2}-\d{2}$/.test(String(row.date).trim())) {
       errors.push(`第${line}行: date 格式必须为 YYYY-MM-DD`);
     }
   });
@@ -95,13 +116,14 @@ export function validateMaintenance(data: any[], batchId: string): ValidationRes
     errors.push("导入数据为空");
     return { valid: false, errors, warnings };
   }
+  const isEmpty = (v: any) => v === undefined || v === null || (typeof v === "string" && v.trim() === "");
   data.forEach((row, idx) => {
     const line = idx + 2;
-    if (!row.storeId) errors.push(`第${line}行: 缺少必填字段 storeId`);
-    if (!row.date) errors.push(`第${line}行: 缺少必填字段 date`);
-    if (!row.type) errors.push(`第${line}行: 缺少必填字段 type`);
-    if (!row.description) errors.push(`第${line}行: 缺少必填字段 description`);
-    if (row.date && !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
+    if (isEmpty(row.storeId)) errors.push(`第${line}行: 缺少必填字段 storeId`);
+    if (isEmpty(row.date)) errors.push(`第${line}行: 缺少必填字段 date`);
+    if (isEmpty(row.type)) errors.push(`第${line}行: 缺少必填字段 type`);
+    if (isEmpty(row.description)) errors.push(`第${line}行: 缺少必填字段 description`);
+    if (!isEmpty(row.date) && !/^\d{4}-\d{2}-\d{2}$/.test(String(row.date).trim())) {
       errors.push(`第${line}行: date 格式必须为 YYYY-MM-DD`);
     }
   });
@@ -260,6 +282,8 @@ export function recalculateAnomaliesForStores(storeIds: string[]): number {
 }
 
 export function recalculateAnomaliesForStore(storeId: string): number {
+  // 阈值/源数据变更，先清理待复核异常再按新条件重判；已复核状态保留不动
+  repo.deletePendingAnomaliesForStore(storeId);
   const readings = repo.getMeterReadings(storeId);
   const hoursMap = new Map(repo.getBusinessHours(storeId).map(h => [h.date, h]));
   const threshold = repo.getThresholdForStore(storeId);
@@ -297,6 +321,7 @@ export function recalculateAnomaliesForStore(storeId: string): number {
 }
 
 export function recalculateAllAnomalies(): number {
+  repo.deleteAllPendingAnomalies();
   const stores = repo.getStores();
   let anomalyCount = 0;
   for (const store of stores) {
@@ -319,22 +344,96 @@ export function reviewAnomaly(id: string, payload: ReviewPayload): Anomaly {
 export function getAnomaliesForExport(filters?: any) {
   const anomalies = repo.getAnomalies(filters);
   const stores = new Map(repo.getStores().map(s => [s.id, s]));
-  return anomalies.map(a => ({
-    id: a.id,
-    storeName: stores.get(a.storeId)?.name || a.storeId,
-    storeId: a.storeId,
-    date: a.date,
-    dailyConsumption: a.dailyConsumption,
-    expectedConsumption: a.expectedConsumption,
-    deviationRate: a.deviationRate,
-    status: a.status,
-    attribution: a.attribution,
-    note: a.note,
-    evidenceSource: a.evidenceSource,
-    reviewer: a.reviewer,
-    reviewedAt: a.reviewedAt,
-    createdAt: a.createdAt,
-  }));
+
+  // 按门店预构建索引，保证 O(1) 查源数据，形成完整证据链
+  const storeIds = [...new Set(anomalies.map(a => a.storeId))];
+  type ReadingByDate = Map<string, number>;
+  type HoursByDate = Map<string, { openHour: number; closeHour: number }>;
+  type MaintByDate = Map<string, { type: string; description: string } | null>;
+  type ThresholdForStore = { dailyLimit: number; fluctuationRate: number; hoursCorrectionFactor: number };
+
+  const readingsByStore = new Map<string, ReadingByDate>();
+  const hoursByStore = new Map<string, HoursByDate>();
+  const maintByStore = new Map<string, MaintByDate>();
+  const thresholdByStore = new Map<string, ThresholdForStore>();
+
+  for (const sid of storeIds) {
+    // 源读数（累计值）
+    const rds = repo.getMeterReadings(sid);
+    readingsByStore.set(sid, new Map(rds.map(r => [r.date, r.reading])));
+    // 营业时长
+    const hrs = repo.getBusinessHours(sid);
+    hoursByStore.set(sid, new Map(hrs.map(h => [h.date, { openHour: h.openHour, closeHour: h.closeHour }])));
+    // 维修记录：hasMaintenanceOnDate 返回整条对象
+    const maintMap: MaintByDate = new Map();
+    // 用同一时间范围内的所有维修记录建索引，避免每条异常查一次 DB
+    const allMaint = (repo as any).getMaintenanceRecords?.(sid) || [];
+    for (const m of allMaint) maintMap.set(m.date, { type: m.type, description: m.description });
+    maintByStore.set(sid, maintMap);
+    // 阈值（判断依据）
+    thresholdByStore.set(sid, repo.getThresholdForStore(sid));
+  }
+
+  // 辅助：给定门店+日期，找最近一个已存在读数日期作为"前日"（处理空缺）
+  function getPrevReading(sid: string, date: string): number | null {
+    const m = readingsByStore.get(sid);
+    if (!m) return null;
+    const dates = [...m.keys()].sort();
+    const idx = dates.indexOf(date);
+    if (idx <= 0) return null;
+    return m.get(dates[idx - 1]) ?? null;
+  }
+
+  return anomalies.map(a => {
+    const sid = a.storeId;
+    const store = stores.get(sid);
+    const readings = readingsByStore.get(sid);
+    const hours = hoursByStore.get(sid);
+    const maint = maintByStore.get(sid);
+    const th = thresholdByStore.get(sid)!;
+
+    const readingCurr: number | null = readings?.get(a.date) ?? null;
+    const readingPrev: number | null = readingCurr !== null ? getPrevReading(sid, a.date) : null;
+    const hoursRec = hours?.get(a.date);
+    const openHour = hoursRec ? hoursRec.openHour : null;
+    const closeHour = hoursRec ? hoursRec.closeHour : null;
+    const businessHours = (openHour !== null && closeHour !== null) ? +(closeHour - openHour).toFixed(2) : STANDARD_HOURS;
+    const maintRec = maint?.get(a.date) ?? repo.hasMaintenanceOnDate(sid, a.date);
+    const hasMaintenance = !!maintRec;
+    const maintenanceType = maintRec?.type ?? null;
+    const maintenanceDesc = maintRec?.description ?? null;
+
+    return {
+      id: a.id,
+      storeName: store?.name || sid,
+      storeId: sid,
+      date: a.date,
+      // ===== 证据链：源数据 =====
+      readingPrev,
+      readingCurr,
+      dailyConsumption: a.dailyConsumption,
+      openHour,
+      closeHour,
+      businessHours,
+      hasMaintenance,
+      maintenanceType,
+      maintenanceDesc,
+      // ===== 证据链：判断依据 =====
+      thresholdDailyLimit: th.dailyLimit,
+      thresholdFluctuationRate: th.fluctuationRate,
+      hoursCorrectionFactor: th.hoursCorrectionFactor,
+      expectedConsumption: a.expectedConsumption,
+      deviationRate: a.deviationRate,
+      // ===== 结论与复核 =====
+      status: a.status,
+      attribution: a.attribution,
+      note: a.note,
+      evidenceSource: a.evidenceSource,
+      reviewer: a.reviewer,
+      reviewedAt: a.reviewedAt,
+      createdAt: a.createdAt,
+    };
+  });
 }
 
 export function toCSV(rows: any[]): string {
