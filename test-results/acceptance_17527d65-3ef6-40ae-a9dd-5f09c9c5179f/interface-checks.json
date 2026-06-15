@@ -1,0 +1,34 @@
+[
+  {
+    "name": "健康检查",
+    "endpoint": "/api/health",
+    "method": "GET",
+    "status": "failed",
+    "responseTime": 2,
+    "detail": "fetch failed"
+  },
+  {
+    "name": "门店列表",
+    "endpoint": "/api/stores",
+    "method": "GET",
+    "status": "passed",
+    "responseTime": 4,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "异常列表",
+    "endpoint": "/api/anomalies",
+    "method": "GET",
+    "status": "passed",
+    "responseTime": 7,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "批次列表",
+    "endpoint": "/api/import/batches",
+    "method": "GET",
+    "status": "passed",
+    "responseTime": 5,
+    "detail": "HTTP 200"
+  }
+]

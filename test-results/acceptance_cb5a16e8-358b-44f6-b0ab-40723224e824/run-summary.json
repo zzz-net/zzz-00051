@@ -1,0 +1,131 @@
+{
+  "runId": "cb5a16e8-358b-44f6-b0ab-40723224e824",
+  "runName": "演练恢复台验收测试-mqexmyw8emgo",
+  "createdAt": "2026-06-15T08:09:36.447Z",
+  "filterCriteria": {
+    "status": "pending",
+    "minDeviationRate": 0.1
+  },
+  "reviewRecordCount": 1,
+  "interfaceCheckCount": 4,
+  "interfaceCheckPassed": 4,
+  "exportFileCount": 0,
+  "steps": [
+    {
+      "step": "type_check",
+      "label": "类型检查",
+      "phase": "self_check",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:09:36.448Z",
+      "finishedAt": "2026-06-15T08:09:49.715Z",
+      "detail": "TypeScript 类型检查通过",
+      "error": null
+    },
+    {
+      "step": "build_check",
+      "label": "构建检查",
+      "phase": "self_check",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:09:49.718Z",
+      "finishedAt": "2026-06-15T08:10:11.795Z",
+      "detail": "Vite 构建成功",
+      "error": null
+    },
+    {
+      "step": "service_version_check",
+      "label": "服务版本确认",
+      "phase": "self_check",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:10:11.798Z",
+      "finishedAt": "2026-06-15T08:10:11.799Z",
+      "detail": "服务启动时间匹配: 2026-06-15T08:08:29.638Z",
+      "error": null
+    },
+    {
+      "step": "data_isolation",
+      "label": "隔离数据准备",
+      "phase": "preparation",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:10:11.800Z",
+      "finishedAt": "2026-06-15T08:10:11.800Z",
+      "detail": "清理 0 条旧数据，前缀: acc-cb5a16e8",
+      "error": null
+    },
+    {
+      "step": "batch_import",
+      "label": "批次导入与冲突处理",
+      "phase": "preparation",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:10:11.803Z",
+      "finishedAt": "2026-06-15T08:10:11.818Z",
+      "detail": "读数导入成功=14, 冲突检测=已处理",
+      "error": null
+    },
+    {
+      "step": "first_drill",
+      "label": "第一次演练执行",
+      "phase": "drill_run",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:10:11.820Z",
+      "finishedAt": "2026-06-15T08:10:11.966Z",
+      "detail": "异常=7, 接口检查=4/4",
+      "error": null
+    },
+    {
+      "step": "snapshot_before_second",
+      "label": "第二次演练前快照",
+      "phase": "drill_run",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:10:11.970Z",
+      "finishedAt": "2026-06-15T08:10:11.971Z",
+      "detail": "门店=7, 异常=7",
+      "error": null
+    },
+    {
+      "step": "second_drill",
+      "label": "第二次演练执行",
+      "phase": "drill_run",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:10:11.974Z",
+      "finishedAt": "2026-06-15T08:10:12.015Z",
+      "detail": "异常=9, 接口检查=4/4",
+      "error": null
+    },
+    {
+      "step": "consistency_check",
+      "label": "两次演练一致性验证",
+      "phase": "drill_run",
+      "status": "passed",
+      "startedAt": "2026-06-15T08:10:12.018Z",
+      "finishedAt": "2026-06-15T08:10:12.019Z",
+      "detail": "第一次演练异常=2, 第二次演练异常=2, 一致",
+      "error": null
+    },
+    {
+      "step": "restart_recovery_check",
+      "label": "重启回读验证",
+      "phase": "restart_verification",
+      "status": "skipped",
+      "startedAt": "2026-06-15T08:10:12.021Z",
+      "finishedAt": "2026-06-15T08:10:12.022Z",
+      "detail": "重启验证需在服务重启后执行",
+      "error": null
+    },
+    {
+      "step": "package_generation",
+      "label": "生成验收包",
+      "phase": "final_packaging",
+      "status": "pending",
+      "startedAt": null,
+      "finishedAt": null,
+      "detail": null,
+      "error": null
+    }
+  ],
+  "summary": {
+    "typeCheck": true,
+    "buildCheck": true,
+    "consistency": true,
+    "restartRecovery": false
+  }
+}

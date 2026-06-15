@@ -1,0 +1,15 @@
+{
+  "packageVersion": "1.0",
+  "runId": "fdbb36af-5b13-45f7-a734-270fc0473093",
+  "runName": "演练恢复台验收测试-mqexfo010ihr-对比",
+  "createdAt": "2026-06-15T08:04:38.150Z",
+  "files": [
+    "manifest.json",
+    "filter-criteria.json",
+    "review-records.json",
+    "interface-checks.json",
+    "export-index.json",
+    "steps-timeline.json",
+    "run-summary.json"
+  ]
+}

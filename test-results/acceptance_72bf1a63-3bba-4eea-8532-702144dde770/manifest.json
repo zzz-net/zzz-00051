@@ -1,0 +1,15 @@
+{
+  "packageVersion": "1.0",
+  "runId": "72bf1a63-3bba-4eea-8532-702144dde770",
+  "runName": "演练恢复台验收测试-mqexmyw8emgo-对比",
+  "createdAt": "2026-06-15T08:10:14.134Z",
+  "files": [
+    "manifest.json",
+    "filter-criteria.json",
+    "review-records.json",
+    "interface-checks.json",
+    "export-index.json",
+    "steps-timeline.json",
+    "run-summary.json"
+  ]
+}

@@ -1,0 +1,639 @@
+{
+  "testId": "mqey8ci57mk8",
+  "drillName": "演练恢复台验收测试-mqey8ci57mk8",
+  "testDrillRunId": "6efa853d-8a0c-47bb-ac61-87e088f16ea5",
+  "secondDrillRunId": "d4471aed-bbfd-42e8-beba-1db7ff7c669e",
+  "restoredDrillRunId": "restored-mqey8ci57mk8",
+  "packagePath": "D:\\workSpace\\AI__SPACE\\zzz-00051\\test-results\\acceptance_6efa853d-8a0c-47bb-ac61-87e088f16ea5",
+  "timestamp": "2026-06-15T08:28:54.862Z",
+  "total": 104,
+  "passed": 103,
+  "failed": 1,
+  "passRate": 99.03846153846155,
+  "results": [
+    {
+      "index": 1,
+      "condition": true,
+      "message": "API 服务已启动并可访问",
+      "timestamp": "2026-06-15T08:26:13.826Z"
+    },
+    {
+      "index": 2,
+      "condition": true,
+      "message": "获取服务信息成功",
+      "timestamp": "2026-06-15T08:26:13.842Z"
+    },
+    {
+      "index": 3,
+      "condition": true,
+      "message": "创建演练成功: 演练恢复台验收测试-mqey8ci57mk8",
+      "timestamp": "2026-06-15T08:26:53.616Z"
+    },
+    {
+      "index": 4,
+      "condition": true,
+      "message": "获取演练详情成功",
+      "timestamp": "2026-06-15T08:26:55.625Z"
+    },
+    {
+      "index": 5,
+      "condition": true,
+      "message": "演练 ID 匹配",
+      "timestamp": "2026-06-15T08:26:55.626Z"
+    },
+    {
+      "index": 6,
+      "condition": true,
+      "message": "演练包含步骤",
+      "timestamp": "2026-06-15T08:26:55.627Z"
+    },
+    {
+      "index": 7,
+      "condition": true,
+      "message": "演练已开始执行",
+      "timestamp": "2026-06-15T08:26:55.627Z"
+    },
+    {
+      "index": 8,
+      "condition": true,
+      "message": "演练在超时前完成执行",
+      "timestamp": "2026-06-15T08:26:55.635Z"
+    },
+    {
+      "index": 9,
+      "condition": true,
+      "message": "获取最终演练详情成功",
+      "timestamp": "2026-06-15T08:26:55.641Z"
+    },
+    {
+      "index": 10,
+      "condition": true,
+      "message": "验收包已生成",
+      "timestamp": "2026-06-15T08:26:55.641Z"
+    },
+    {
+      "index": 11,
+      "condition": true,
+      "message": "验收包路径已设置",
+      "timestamp": "2026-06-15T08:26:55.642Z"
+    },
+    {
+      "index": 12,
+      "condition": true,
+      "message": "手动保存快照成功",
+      "timestamp": "2026-06-15T08:26:55.649Z"
+    },
+    {
+      "index": 13,
+      "condition": true,
+      "message": "获取演练快照列表成功",
+      "timestamp": "2026-06-15T08:26:55.662Z"
+    },
+    {
+      "index": 14,
+      "condition": true,
+      "message": "至少存在 2 个快照（自动+手动）",
+      "timestamp": "2026-06-15T08:26:55.662Z"
+    },
+    {
+      "index": 15,
+      "condition": true,
+      "message": "获取恢复状态成功",
+      "timestamp": "2026-06-15T08:26:55.676Z"
+    },
+    {
+      "index": 16,
+      "condition": true,
+      "message": "状态中包含最新快照",
+      "timestamp": "2026-06-15T08:26:55.676Z"
+    },
+    {
+      "index": 17,
+      "condition": true,
+      "message": "状态中标记包已就绪",
+      "timestamp": "2026-06-15T08:26:55.677Z"
+    },
+    {
+      "index": 18,
+      "condition": true,
+      "message": "状态中包含冲突信息",
+      "timestamp": "2026-06-15T08:26:55.677Z"
+    },
+    {
+      "index": 19,
+      "condition": true,
+      "message": "尝试恢复不存在的 runId 返回失败",
+      "timestamp": "2026-06-15T08:26:55.683Z"
+    },
+    {
+      "index": 20,
+      "condition": true,
+      "message": "错误信息明确指出演练记录不存在",
+      "timestamp": "2026-06-15T08:26:55.684Z"
+    },
+    {
+      "index": 21,
+      "condition": true,
+      "message": "返回冲突信息指出 runId 不存在",
+      "timestamp": "2026-06-15T08:26:55.684Z"
+    },
+    {
+      "index": 22,
+      "condition": true,
+      "message": "创建 restart 测试演练成功",
+      "timestamp": "2026-06-15T08:27:34.803Z"
+    },
+    {
+      "index": 23,
+      "condition": true,
+      "message": "restart 测试演练在超时前完成执行",
+      "timestamp": "2026-06-15T08:27:37.813Z"
+    },
+    {
+      "index": 24,
+      "condition": true,
+      "message": "获取 restart 测试演练详情成功",
+      "timestamp": "2026-06-15T08:27:37.819Z"
+    },
+    {
+      "index": 25,
+      "condition": true,
+      "message": "restart 测试演练验收包已生成",
+      "timestamp": "2026-06-15T08:27:37.820Z"
+    },
+    {
+      "index": 26,
+      "condition": true,
+      "message": "重启模式请求已处理",
+      "timestamp": "2026-06-15T08:27:37.828Z"
+    },
+    {
+      "index": 27,
+      "condition": true,
+      "message": "restart 操作记录了 action",
+      "timestamp": "2026-06-15T08:27:37.829Z"
+    },
+    {
+      "index": 28,
+      "condition": true,
+      "message": "action 记录正确的 restart 模式",
+      "timestamp": "2026-06-15T08:27:37.829Z"
+    },
+    {
+      "index": 29,
+      "condition": true,
+      "message": "获取 restart 后演练详情成功",
+      "timestamp": "2026-06-15T08:27:37.833Z"
+    },
+    {
+      "index": 30,
+      "condition": true,
+      "message": "restart 后演练状态重置为 idle",
+      "timestamp": "2026-06-15T08:27:37.834Z"
+    },
+    {
+      "index": 31,
+      "condition": true,
+      "message": "restart 后包就绪状态重置为 false",
+      "timestamp": "2026-06-15T08:27:37.834Z"
+    },
+    {
+      "index": 32,
+      "condition": true,
+      "message": "restart 后包路径重置为 null",
+      "timestamp": "2026-06-15T08:27:37.835Z"
+    },
+    {
+      "index": 33,
+      "condition": true,
+      "message": "创建 continue 测试演练成功",
+      "timestamp": "2026-06-15T08:28:14.098Z"
+    },
+    {
+      "index": 34,
+      "condition": true,
+      "message": "continue 测试演练在超时前完成执行",
+      "timestamp": "2026-06-15T08:28:17.109Z"
+    },
+    {
+      "index": 35,
+      "condition": true,
+      "message": "获取 continue 测试演练详情成功",
+      "timestamp": "2026-06-15T08:28:17.117Z"
+    },
+    {
+      "index": 36,
+      "condition": true,
+      "message": "continue 测试演练验收包已生成",
+      "timestamp": "2026-06-15T08:28:17.119Z"
+    },
+    {
+      "index": 37,
+      "condition": true,
+      "message": "继续模式请求已处理",
+      "timestamp": "2026-06-15T08:28:17.134Z"
+    },
+    {
+      "index": 38,
+      "condition": true,
+      "message": "恢复操作记录了 action",
+      "timestamp": "2026-06-15T08:28:17.135Z"
+    },
+    {
+      "index": 39,
+      "condition": true,
+      "message": "action 记录正确的模式",
+      "timestamp": "2026-06-15T08:28:17.136Z"
+    },
+    {
+      "index": 40,
+      "condition": true,
+      "message": "记录了恢复来源的快照 ID",
+      "timestamp": "2026-06-15T08:28:17.136Z"
+    },
+    {
+      "index": 41,
+      "condition": true,
+      "message": "创建第二个演练成功",
+      "timestamp": "2026-06-15T08:28:54.546Z"
+    },
+    {
+      "index": 42,
+      "condition": true,
+      "message": "第二个演练在超时前完成执行",
+      "timestamp": "2026-06-15T08:28:54.556Z"
+    },
+    {
+      "index": 43,
+      "condition": true,
+      "message": "对比两次演练结果成功",
+      "timestamp": "2026-06-15T08:28:54.564Z"
+    },
+    {
+      "index": 44,
+      "condition": true,
+      "message": "对比记录已保存并返回 ID",
+      "timestamp": "2026-06-15T08:28:54.564Z"
+    },
+    {
+      "index": 45,
+      "condition": true,
+      "message": "第一个 runId 正确",
+      "timestamp": "2026-06-15T08:28:54.565Z"
+    },
+    {
+      "index": 46,
+      "condition": true,
+      "message": "第二个 runId 正确",
+      "timestamp": "2026-06-15T08:28:54.565Z"
+    },
+    {
+      "index": 47,
+      "condition": true,
+      "message": "包含步骤级对比",
+      "timestamp": "2026-06-15T08:28:54.566Z"
+    },
+    {
+      "index": 48,
+      "condition": true,
+      "message": "包含异常统计对比",
+      "timestamp": "2026-06-15T08:28:54.566Z"
+    },
+    {
+      "index": 49,
+      "condition": true,
+      "message": "包含接口检查对比",
+      "timestamp": "2026-06-15T08:28:54.566Z"
+    },
+    {
+      "index": 50,
+      "condition": true,
+      "message": "包含匹配分数",
+      "timestamp": "2026-06-15T08:28:54.567Z"
+    },
+    {
+      "index": 51,
+      "condition": true,
+      "message": "包含详细差异列表",
+      "timestamp": "2026-06-15T08:28:54.567Z"
+    },
+    {
+      "index": 52,
+      "condition": true,
+      "message": "获取演练的对比历史成功",
+      "timestamp": "2026-06-15T08:28:54.572Z"
+    },
+    {
+      "index": 53,
+      "condition": true,
+      "message": "至少有一条对比记录",
+      "timestamp": "2026-06-15T08:28:54.572Z"
+    },
+    {
+      "index": 54,
+      "condition": true,
+      "message": "对比不存在的 runId 返回失败",
+      "timestamp": "2026-06-15T08:28:54.578Z"
+    },
+    {
+      "index": 55,
+      "condition": true,
+      "message": "获取验收包列表成功",
+      "timestamp": "2026-06-15T08:28:54.674Z"
+    },
+    {
+      "index": 56,
+      "condition": true,
+      "message": "返回数组格式",
+      "timestamp": "2026-06-15T08:28:54.675Z"
+    },
+    {
+      "index": 57,
+      "condition": true,
+      "message": "至少有一个验收包",
+      "timestamp": "2026-06-15T08:28:54.675Z"
+    },
+    {
+      "index": 58,
+      "condition": true,
+      "message": "加载导出包索引成功",
+      "timestamp": "2026-06-15T08:28:54.687Z"
+    },
+    {
+      "index": 59,
+      "condition": true,
+      "message": "导出包 runId 与演练一致",
+      "timestamp": "2026-06-15T08:28:54.688Z"
+    },
+    {
+      "index": 60,
+      "condition": true,
+      "message": "导出包包含至少 7 个文件",
+      "timestamp": "2026-06-15T08:28:54.688Z"
+    },
+    {
+      "index": 61,
+      "condition": true,
+      "message": "数据完整性校验通过",
+      "timestamp": "2026-06-15T08:28:54.689Z"
+    },
+    {
+      "index": 62,
+      "condition": true,
+      "message": "生成了 manifest 哈希",
+      "timestamp": "2026-06-15T08:28:54.689Z"
+    },
+    {
+      "index": 63,
+      "condition": true,
+      "message": "包含文件列表",
+      "timestamp": "2026-06-15T08:28:54.690Z"
+    },
+    {
+      "index": 64,
+      "condition": true,
+      "message": "加载不存在的导出包返回失败",
+      "timestamp": "2026-06-15T08:28:54.694Z"
+    },
+    {
+      "index": 65,
+      "condition": true,
+      "message": "加载 runId 已存在的导出包时仍能成功加载索引",
+      "timestamp": "2026-06-15T08:28:54.705Z"
+    },
+    {
+      "index": 66,
+      "condition": true,
+      "message": "返回 existingRunId 标记指出 runId 已存在",
+      "timestamp": "2026-06-15T08:28:54.705Z"
+    },
+    {
+      "index": 67,
+      "condition": true,
+      "message": "尝试用已存在的 runId 恢复返回失败",
+      "timestamp": "2026-06-15T08:28:54.714Z"
+    },
+    {
+      "index": 68,
+      "condition": true,
+      "message": "错误信息指出 runId 已存在，无法覆盖",
+      "timestamp": "2026-06-15T08:28:54.714Z"
+    },
+    {
+      "index": 69,
+      "condition": true,
+      "message": "用新 runId 从导出包恢复成功",
+      "timestamp": "2026-06-15T08:28:54.733Z"
+    },
+    {
+      "index": 70,
+      "condition": true,
+      "message": "恢复的演练使用新 runId",
+      "timestamp": "2026-06-15T08:28:54.734Z"
+    },
+    {
+      "index": 71,
+      "condition": true,
+      "message": "恢复的演练状态为 completed",
+      "timestamp": "2026-06-15T08:28:54.734Z"
+    },
+    {
+      "index": 72,
+      "condition": true,
+      "message": "恢复的演练包含步骤",
+      "timestamp": "2026-06-15T08:28:54.735Z"
+    },
+    {
+      "index": 73,
+      "condition": true,
+      "message": "恢复的演练标记包已就绪",
+      "timestamp": "2026-06-15T08:28:54.735Z"
+    },
+    {
+      "index": 74,
+      "condition": true,
+      "message": "获取已恢复演练详情成功",
+      "timestamp": "2026-06-15T08:28:54.740Z"
+    },
+    {
+      "index": 75,
+      "condition": true,
+      "message": "已恢复的演练包含复核记录",
+      "timestamp": "2026-06-15T08:28:54.740Z"
+    },
+    {
+      "index": 76,
+      "condition": true,
+      "message": "已恢复的演练包含接口检查结果",
+      "timestamp": "2026-06-15T08:28:54.741Z"
+    },
+    {
+      "index": 77,
+      "condition": true,
+      "message": "已恢复的演练包含导出文件列表",
+      "timestamp": "2026-06-15T08:28:54.742Z"
+    },
+    {
+      "index": 78,
+      "condition": true,
+      "message": "重复恢复同一 runId 返回失败",
+      "timestamp": "2026-06-15T08:28:54.748Z"
+    },
+    {
+      "index": 79,
+      "condition": true,
+      "message": "错误信息明确指出 runId 已存在",
+      "timestamp": "2026-06-15T08:28:54.749Z"
+    },
+    {
+      "index": 80,
+      "condition": true,
+      "message": "API 接口都能正常响应",
+      "timestamp": "2026-06-15T08:28:54.771Z"
+    },
+    {
+      "index": 81,
+      "condition": true,
+      "message": "演练详情和恢复状态中的 status 一致",
+      "timestamp": "2026-06-15T08:28:54.772Z"
+    },
+    {
+      "index": 82,
+      "condition": true,
+      "message": "演练详情和恢复状态中的 currentPhase 一致",
+      "timestamp": "2026-06-15T08:28:54.772Z"
+    },
+    {
+      "index": 83,
+      "condition": true,
+      "message": "演练详情和恢复状态中的 packageReady 一致",
+      "timestamp": "2026-06-15T08:28:54.772Z"
+    },
+    {
+      "index": 84,
+      "condition": true,
+      "message": "演练详情和恢复状态中的 packagePath 一致",
+      "timestamp": "2026-06-15T08:28:54.773Z"
+    },
+    {
+      "index": 85,
+      "condition": true,
+      "message": "快照列表和恢复状态中的快照信息一致",
+      "timestamp": "2026-06-15T08:28:54.774Z"
+    },
+    {
+      "index": 86,
+      "condition": false,
+      "message": "导出文件列表在不同接口中一致",
+      "timestamp": "2026-06-15T08:28:54.774Z"
+    },
+    {
+      "index": 87,
+      "condition": true,
+      "message": "重启后仍能查询恢复状态",
+      "timestamp": "2026-06-15T08:28:54.814Z"
+    },
+    {
+      "index": 88,
+      "condition": true,
+      "message": "重启后仍能查询演练详情",
+      "timestamp": "2026-06-15T08:28:54.821Z"
+    },
+    {
+      "index": 89,
+      "condition": true,
+      "message": "重启后 runId 保持一致",
+      "timestamp": "2026-06-15T08:28:54.821Z"
+    },
+    {
+      "index": 90,
+      "condition": true,
+      "message": "重启后演练名称保持一致",
+      "timestamp": "2026-06-15T08:28:54.822Z"
+    },
+    {
+      "index": 91,
+      "condition": true,
+      "message": "重启后步骤数量保持一致",
+      "timestamp": "2026-06-15T08:28:54.822Z"
+    },
+    {
+      "index": 92,
+      "condition": true,
+      "message": "重启后复核记录数量保持一致",
+      "timestamp": "2026-06-15T08:28:54.823Z"
+    },
+    {
+      "index": 93,
+      "condition": true,
+      "message": "重启后接口检查结果数量保持一致",
+      "timestamp": "2026-06-15T08:28:54.824Z"
+    },
+    {
+      "index": 94,
+      "condition": true,
+      "message": "重启后包就绪状态保持一致",
+      "timestamp": "2026-06-15T08:28:54.825Z"
+    },
+    {
+      "index": 95,
+      "condition": true,
+      "message": "重启后包路径保持一致",
+      "timestamp": "2026-06-15T08:28:54.825Z"
+    },
+    {
+      "index": 96,
+      "condition": true,
+      "message": "重启后仍能查询快照列表",
+      "timestamp": "2026-06-15T08:28:54.837Z"
+    },
+    {
+      "index": 97,
+      "condition": true,
+      "message": "重启后快照数量保持一致",
+      "timestamp": "2026-06-15T08:28:54.838Z"
+    },
+    {
+      "index": 98,
+      "condition": true,
+      "message": "重启后快照的 runId 保持一致",
+      "timestamp": "2026-06-15T08:28:54.838Z"
+    },
+    {
+      "index": 99,
+      "condition": true,
+      "message": "重启后仍能查询对比记录",
+      "timestamp": "2026-06-15T08:28:54.842Z"
+    },
+    {
+      "index": 100,
+      "condition": true,
+      "message": "重启后对比记录数量保持一致",
+      "timestamp": "2026-06-15T08:28:54.842Z"
+    },
+    {
+      "index": 101,
+      "condition": true,
+      "message": "已恢复演练的恢复状态可查询",
+      "timestamp": "2026-06-15T08:28:54.858Z"
+    },
+    {
+      "index": 102,
+      "condition": true,
+      "message": "恢复状态中包含恢复来源信息",
+      "timestamp": "2026-06-15T08:28:54.859Z"
+    },
+    {
+      "index": 103,
+      "condition": true,
+      "message": "恢复状态中包含恢复模式",
+      "timestamp": "2026-06-15T08:28:54.860Z"
+    },
+    {
+      "index": 104,
+      "condition": true,
+      "message": "恢复状态中包含快照",
+      "timestamp": "2026-06-15T08:28:54.860Z"
+    }
+  ]
+}

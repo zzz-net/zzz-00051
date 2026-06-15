@@ -1303,6 +1303,15 @@ import type {
   AcceptanceExportFile,
   AcceptancePackageInfo,
   AcceptanceRunStatus,
+  DrillRecoveryMode,
+  DrillSnapshotType,
+  DrillRecoverySnapshot,
+  DrillComparisonResult,
+  DrillComparisonDiff,
+  DrillRecoveryStatus,
+  DrillRecoveryAction,
+  DrillExportIndex,
+  DrillConflictInfo,
 } from "../shared/types.js";
 import { execSync } from "child_process";
 import fs from "fs";
@@ -1670,6 +1679,15 @@ function saveAcceptancePackage(runId: string): { path: string; size: number } {
   }
 
   const exportIndexPath = path.join(packageDir, "export-index.json");
+
+  files.push({
+    name: "export-index.json",
+    type: "json",
+    size: 0,
+    recordCount: files.length,
+    path: exportIndexPath,
+  });
+
   const exportIndex = {
     generatedAt: nowISO(),
     totalFiles: files.length,
@@ -1681,14 +1699,15 @@ function saveAcceptancePackage(runId: string): { path: string; size: number } {
       recordCount: f.recordCount,
     })),
   };
+
   fs.writeFileSync(exportIndexPath, JSON.stringify(exportIndex, null, 2), "utf-8");
-  files.push({
-    name: "export-index.json",
-    type: "json",
-    size: fs.statSync(exportIndexPath).size,
-    recordCount: files.length,
-    path: exportIndexPath,
-  });
+
+  const actualIndexSize = fs.statSync(exportIndexPath).size;
+  files[files.length - 1].size = actualIndexSize;
+  exportIndex.totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  exportIndex.files[exportIndex.files.length - 1].size = actualIndexSize;
+
+  fs.writeFileSync(exportIndexPath, JSON.stringify(exportIndex, null, 2), "utf-8");
 
   repo.updateAcceptanceRun(runId, {
     exportFiles: files,
@@ -1766,8 +1785,10 @@ export async function runAcceptanceDrill(options?: {
           appendLog(`类型检查: 失败 - ${e.message}`);
         }
         repo.updateAcceptanceRun(runId, { steps, logs, typeCheckPassed });
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "type_check", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1790,8 +1811,10 @@ export async function runAcceptanceDrill(options?: {
           appendLog(`构建检查: 失败 - ${e.message}`);
         }
         repo.updateAcceptanceRun(runId, { steps, logs, buildCheckPassed: buildPassed });
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "build_check", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1817,8 +1840,10 @@ export async function runAcceptanceDrill(options?: {
         finishAcceptanceStep(steps, "data_isolation", true, `清理 ${total} 条旧数据，前缀: ${prefix}`);
         appendLog(`数据隔离: 清理 ${total} 条, prefix=${prefix}`);
         repo.updateAcceptanceRun(runId, { steps, logs });
+        autoSaveDrillSnapshot(runId, "before_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "data_isolation", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1849,8 +1874,10 @@ export async function runAcceptanceDrill(options?: {
           `读数导入成功=${readingsResult.successCount}, 冲突检测=${hasConflictHandling ? "已处理" : "无"}`);
         appendLog(`批次导入: 读数=${readingsResult.successCount}, 冲突处理=${hasConflictHandling}`);
         repo.updateAcceptanceRun(runId, { steps, logs, currentPhase: "drill_run" });
+        autoSaveDrillSnapshot(runId, "before_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "batch_import", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1869,8 +1896,10 @@ export async function runAcceptanceDrill(options?: {
           interfaceChecks: firstResult.interfaceChecks,
           snapshotBeforeDrill: JSON.stringify(firstResult.snapshot),
         });
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "first_drill", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1882,8 +1911,10 @@ export async function runAcceptanceDrill(options?: {
           `门店=${snap.storeCount}, 异常=${snap.anomalyCounts.total || 0}`);
         appendLog(`第二次演练前快照: 门店=${snap.storeCount}`);
         repo.updateAcceptanceRun(runId, { steps, logs });
+        autoSaveDrillSnapshot(runId, "before_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "snapshot_before_second", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1899,8 +1930,10 @@ export async function runAcceptanceDrill(options?: {
           secondDrillResult: JSON.stringify(secondResult),
           snapshotAfterDrill: JSON.stringify(secondResult.snapshot),
         });
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "second_drill", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1925,8 +1958,10 @@ export async function runAcceptanceDrill(options?: {
           `第一次演练异常=${firstDrillAnomCount}, 第二次演练异常=${secondDrillAnomCount}, ${consistency ? "一致" : "不一致"}`);
         appendLog(`一致性验证: ${consistency ? "通过" : "失败"}`);
         repo.updateAcceptanceRun(runId, { steps, logs, consistencyVerified: consistency, currentPhase: "restart_verification" });
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
       } catch (e: any) {
         finishAcceptanceStep(steps, "consistency_check", false, null, e.message);
+        autoSaveDrillSnapshot(runId, "after_drill", logs);
         repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
         return repo.getAcceptanceRunById(runId)!;
       }
@@ -1944,6 +1979,7 @@ export async function runAcceptanceDrill(options?: {
         finishAcceptanceStep(steps, "restart_recovery_check", recoveryVerified,
           `服务已重启=${serviceRestarted}, 状态可回读=${stateRecovered}`);
         appendLog(`重启回读验证: ${recoveryVerified ? "通过" : "失败"}`);
+        autoSaveDrillSnapshot(runId, "after_restart", logs);
       } else {
         skipAcceptanceStep(steps, "restart_recovery_check", "重启验证需在服务重启后执行");
         appendLog("重启回读验证: 跳过（需重启后验证）");
@@ -1951,6 +1987,7 @@ export async function runAcceptanceDrill(options?: {
       repo.updateAcceptanceRun(runId, { steps, logs, restartRecoveryVerified: recoveryVerified, currentPhase: "final_packaging" });
     } catch (e: any) {
       finishAcceptanceStep(steps, "restart_recovery_check", false, null, e.message);
+      autoSaveDrillSnapshot(runId, "after_restart", logs);
       repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
       return repo.getAcceptanceRunById(runId)!;
     }
@@ -1962,8 +1999,10 @@ export async function runAcceptanceDrill(options?: {
         `验收包已生成: ${pkg.path} (${(pkg.size / 1024).toFixed(1)} KB)`);
       appendLog(`验收包生成: ${pkg.path}, ${(pkg.size / 1024).toFixed(1)} KB`);
       repo.updateAcceptanceRun(runId, { steps, logs });
+      autoSaveDrillSnapshot(runId, "after_drill", logs);
     } catch (e: any) {
       finishAcceptanceStep(steps, "package_generation", false, null, e.message);
+      autoSaveDrillSnapshot(runId, "after_drill", logs);
       repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
       return repo.getAcceptanceRunById(runId)!;
     }
@@ -1977,10 +2016,12 @@ export async function runAcceptanceDrill(options?: {
       currentPhase: null,
     });
     appendLog(`演练完成: ${allPassed ? "全部通过" : "存在失败"}`);
+    autoSaveDrillSnapshot(runId, "after_drill", logs);
 
     return repo.getAcceptanceRunById(runId)!;
   } catch (e: any) {
     appendLog(`演练异常: ${e.message}`);
+    autoSaveDrillSnapshot(runId, "after_drill", logs);
     repo.updateAcceptanceRun(runId, { status: "failed", steps, logs, finishedAt: nowISO() });
     return repo.getAcceptanceRunById(runId)!;
   }
@@ -2030,6 +2071,622 @@ export function getServiceInfo() {
     version: SERVICE_VERSION,
     startTime: SERVICE_START_TIME,
     uptime: Date.now() - new Date(SERVICE_START_TIME).getTime(),
+  };
+}
+
+function autoSaveDrillSnapshot(runId: string, snapshotType: DrillSnapshotType, logs: string[]): DrillRecoverySnapshot | null {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) return null;
+
+  const stepIndex = run.steps.findIndex(s => s.status === "running");
+  const systemState = JSON.stringify(repo.getSystemStateSnapshot());
+  const anomalyStats = repo.getAnomalyStats();
+
+  const snapshot = repo.saveDrillSnapshot({
+    runId,
+    snapshotType,
+    stepIndex: stepIndex >= 0 ? stepIndex : run.steps.filter(s => s.status !== "pending").length,
+    currentPhase: run.currentPhase,
+    filterCriteria: run.filterCriteria,
+    reviewRecords: run.reviewRecords,
+    interfaceChecks: run.interfaceChecks,
+    steps: run.steps,
+    anomalyStats,
+    systemState,
+    serviceVersion: SERVICE_VERSION,
+    serviceStartTime: SERVICE_START_TIME,
+    operationLogs: [...logs],
+  });
+
+  return snapshot;
+}
+
+export function saveManualSnapshot(runId: string): { success: boolean; snapshot: DrillRecoverySnapshot | null; message: string } {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) {
+    return { success: false, snapshot: null, message: `演练记录 ${runId} 不存在` };
+  }
+
+  const snapshot = autoSaveDrillSnapshot(runId, "manual", run.logs);
+  return {
+    success: !!snapshot,
+    snapshot,
+    message: snapshot ? `手动快照已保存，ID: ${snapshot.id}` : "快照保存失败",
+  };
+}
+
+export function getDrillSnapshots(runId: string): { success: boolean; snapshots: DrillRecoverySnapshot[]; message: string } {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) {
+    return { success: false, snapshots: [], message: `演练记录 ${runId} 不存在` };
+  }
+
+  const snapshots = repo.getSnapshotsForRun(runId);
+  return { success: true, snapshots, message: `共 ${snapshots.length} 个快照` };
+}
+
+export async function recoverDrill(runId: string, mode: DrillRecoveryMode): Promise<{
+  success: boolean;
+  run: AcceptanceRun | null;
+  action: DrillRecoveryAction | null;
+  conflicts: DrillConflictInfo[];
+  message: string;
+}> {
+  const conflicts = repo.checkForConflicts(runId, mode, SERVICE_START_TIME);
+
+  const fatalConflicts = conflicts.filter(c => c.suggestedAction === "abort");
+  if (fatalConflicts.length > 0) {
+    return {
+      success: false,
+      run: null,
+      action: null,
+      conflicts,
+      message: fatalConflicts.map(c => c.message).join("; "),
+    };
+  }
+
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) {
+    return {
+      success: false,
+      run: null,
+      action: null,
+      conflicts: [{
+        type: "run_exists",
+        runId,
+        message: `演练记录 ${runId} 不存在，无法恢复`,
+        existingResource: "acceptance_run",
+        suggestedAction: "abort",
+      }],
+      message: `演练记录 ${runId} 不存在，无法恢复。请使用正确的 runId 或创建新演练。`,
+    };
+  }
+
+  const lastSnapshot = repo.getLatestSnapshotForRun(runId);
+  let recoveredSnapshotId: string | null = null;
+
+  if (mode === "continue") {
+    if (!lastSnapshot) {
+      return {
+        success: false,
+        run,
+        action: null,
+        conflicts,
+        message: "没有找到可用的快照，无法继续执行。请使用 restart 模式重新开始。",
+      };
+    }
+
+    recoveredSnapshotId = lastSnapshot.id;
+    repo.updateAcceptanceRun(runId, {
+      status: "running",
+      recoveryMode: "continue",
+      recoverySourceRunId: runId,
+      pauseReason: null,
+      serviceStartTime: SERVICE_START_TIME,
+      serviceVersion: SERVICE_VERSION,
+    });
+
+    const runExt = run as AcceptanceRun & { logs: string[] };
+    runExt.logs.push(`[${nowISO()}] 从快照恢复继续执行: snapshotId=${lastSnapshot.id}`);
+    repo.updateAcceptanceRun(runId, { logs: runExt.logs });
+
+  } else if (mode === "restart") {
+    if (run.status === "running") {
+      return {
+        success: false,
+        run,
+        action: null,
+        conflicts,
+        message: "演练正在运行中，无法重新开始。请等待当前演练完成或先暂停。",
+      };
+    }
+
+    repo.deleteSnapshotsForRun(runId);
+    repo.deleteComparisonsForRun(runId);
+
+    const freshSteps = run.steps.map(s => ({
+      ...s,
+      status: "pending" as const,
+      startedAt: null,
+      finishedAt: null,
+      detail: null,
+      error: null,
+    }));
+
+    repo.updateAcceptanceRun(runId, {
+      status: "idle",
+      currentPhase: "self_check",
+      steps: freshSteps,
+      filterCriteria: null,
+      reviewRecords: [],
+      interfaceChecks: [],
+      exportFiles: [],
+      snapshotBeforeDrill: null,
+      snapshotAfterDrill: null,
+      snapshotAfterRestart: null,
+      firstDrillResult: null,
+      secondDrillResult: null,
+      consistencyVerified: false,
+      restartRecoveryVerified: false,
+      typeCheckPassed: false,
+      buildCheckPassed: false,
+      recoveryMode: "restart",
+      recoverySourceRunId: runId,
+      pauseReason: null,
+      packageReady: false,
+      packagePath: null,
+      finishedAt: null,
+      serviceStartTime: SERVICE_START_TIME,
+      serviceVersion: SERVICE_VERSION,
+      logs: [`[${nowISO()}] 演练已重置，准备重新开始`],
+    });
+  }
+
+  const recoveredRun = repo.getAcceptanceRunById(runId)!;
+  const action: DrillRecoveryAction = {
+    mode,
+    runId,
+    timestamp: nowISO(),
+    success: true,
+    message: mode === "continue" ? "已从快照恢复，继续执行" : "已重置演练，准备重新开始",
+    recoveredFromSnapshotId: recoveredSnapshotId,
+  };
+
+  return {
+    success: true,
+    run: recoveredRun,
+    action,
+    conflicts,
+    message: action.message,
+  };
+}
+
+export function getDrillRecoveryStatus(runId: string): { success: boolean; status: DrillRecoveryStatus | null; message: string } {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) {
+    return {
+      success: false,
+      status: null,
+      message: `演练记录 ${runId} 不存在`,
+    };
+  }
+
+  const runExt = run as AcceptanceRun & {
+    recoveryMode: DrillRecoveryMode | null;
+    recoverySourceRunId: string | null;
+    pauseReason: string | null;
+  };
+
+  const recoverySource = repo.getDrillRecoverySource(runId, SERVICE_START_TIME);
+  const lastSnapshot = repo.getLatestSnapshotForRun(runId);
+  const conflicts = repo.checkForConflicts(runId, "continue", SERVICE_START_TIME);
+  const serviceRestarted = run.serviceStartTime !== SERVICE_START_TIME;
+
+  let exportIndex: AcceptanceExportFile[] | null = null;
+  if (run.packageReady && run.packagePath) {
+    const loadedIndex = repo.loadExportIndex(run.packagePath);
+    if (loadedIndex) {
+      exportIndex = loadedIndex.files;
+    }
+  }
+
+  const status: DrillRecoveryStatus = {
+    runId: run.id,
+    runName: run.name,
+    currentStatus: run.status,
+    currentPhase: run.currentPhase,
+    recoveryMode: runExt.recoveryMode,
+    recoverySource,
+    lastSnapshot,
+    conflicts,
+    exportIndex,
+    packageReady: run.packageReady,
+    packagePath: run.packagePath,
+    serviceStartTime: SERVICE_START_TIME,
+    serviceVersion: SERVICE_VERSION,
+    serviceRestarted,
+  };
+
+  return {
+    success: true,
+    status,
+    message: "状态查询成功",
+  };
+}
+
+function deepCompare(obj1: any, obj2: any, path: string = ""): DrillComparisonDiff[] {
+  const diffs: DrillComparisonDiff[] = [];
+
+  if (obj1 === obj2) {
+    diffs.push({
+      field: path || "root",
+      firstValue: obj1,
+      secondValue: obj2,
+      changeType: "unchanged",
+    });
+    return diffs;
+  }
+
+  if (typeof obj1 !== typeof obj2) {
+    diffs.push({
+      field: path || "root",
+      firstValue: obj1,
+      secondValue: obj2,
+      changeType: "modified",
+    });
+    return diffs;
+  }
+
+  if (obj1 === null || obj2 === null) {
+    diffs.push({
+      field: path || "root",
+      firstValue: obj1,
+      secondValue: obj2,
+      changeType: obj1 === null ? "removed" : "added",
+    });
+    return diffs;
+  }
+
+  if (Array.isArray(obj1) && Array.isArray(obj2)) {
+    const maxLen = Math.max(obj1.length, obj2.length);
+    for (let i = 0; i < maxLen; i++) {
+      const currentPath = path ? `${path}[${i}]` : `[${i}]`;
+      if (i >= obj1.length) {
+        diffs.push({
+          field: currentPath,
+          firstValue: undefined,
+          secondValue: obj2[i],
+          changeType: "added",
+        });
+      } else if (i >= obj2.length) {
+        diffs.push({
+          field: currentPath,
+          firstValue: obj1[i],
+          secondValue: undefined,
+          changeType: "removed",
+        });
+      } else {
+        diffs.push(...deepCompare(obj1[i], obj2[i], currentPath));
+      }
+    }
+    return diffs;
+  }
+
+  if (typeof obj1 === "object" && typeof obj2 === "object") {
+    const allKeys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})]);
+    for (const key of allKeys) {
+      const currentPath = path ? `${path}.${key}` : key;
+      if (!(key in obj1)) {
+        diffs.push({
+          field: currentPath,
+          firstValue: undefined,
+          secondValue: obj2[key],
+          changeType: "added",
+        });
+      } else if (!(key in obj2)) {
+        diffs.push({
+          field: currentPath,
+          firstValue: obj1[key],
+          secondValue: undefined,
+          changeType: "removed",
+        });
+      } else {
+        diffs.push(...deepCompare(obj1[key], obj2[key], currentPath));
+      }
+    }
+  } else {
+    diffs.push({
+      field: path || "root",
+      firstValue: obj1,
+      secondValue: obj2,
+      changeType: "modified",
+    });
+  }
+
+  return diffs;
+}
+
+export function compareDrillRuns(firstRunId: string, secondRunId: string): {
+  success: boolean;
+  comparison: DrillComparisonResult | null;
+  message: string;
+} {
+  const firstRun = repo.getAcceptanceRunById(firstRunId);
+  const secondRun = repo.getAcceptanceRunById(secondRunId);
+
+  if (!firstRun || !secondRun) {
+    const missing = [];
+    if (!firstRun) missing.push(firstRunId);
+    if (!secondRun) missing.push(secondRunId);
+    return {
+      success: false,
+      comparison: null,
+      message: `演练记录不存在: ${missing.join(", ")}`,
+    };
+  }
+
+  const criticalFields = [
+    "status", "filterCriteria", "reviewRecords", "interfaceChecks",
+    "consistencyVerified", "restartRecoveryVerified", "typeCheckPassed", "buildCheckPassed"
+  ];
+
+  const allDiffs: DrillComparisonDiff[] = [];
+  for (const field of criticalFields) {
+    const val1 = (firstRun as any)[field];
+    const val2 = (secondRun as any)[field];
+    allDiffs.push(...deepCompare(val1, val2, field));
+  }
+
+  const changedDiffs = allDiffs.filter(d => d.changeType !== "unchanged");
+  const criticalDiffs = changedDiffs.filter(d =>
+    d.field.startsWith("status") ||
+    d.field.startsWith("consistencyVerified") ||
+    d.field.startsWith("restartRecoveryVerified") ||
+    d.field.startsWith("typeCheckPassed") ||
+    d.field.startsWith("buildCheckPassed")
+  );
+
+  const totalFields = criticalFields.length;
+  const unchangedFields = totalFields - changedDiffs.filter(d =>
+    criticalFields.some(f => d.field === f || d.field.startsWith(f + "."))
+  ).length;
+  const matchScore = totalFields > 0 ? unchangedFields / totalFields : 1;
+
+  const stepComparison = firstRun.steps.map((step, idx) => {
+    const secondStep = secondRun.steps[idx];
+    return {
+      step: step.step,
+      firstStatus: step.status,
+      secondStatus: secondStep?.status || "pending",
+      match: step.status === secondStep?.status,
+    };
+  });
+
+  const firstAnomalies = JSON.parse(firstRun.firstDrillResult || "{}").drillAnomalyCount || 0;
+  const secondAnomalies = JSON.parse(secondRun.firstDrillResult || "{}").drillAnomalyCount || 0;
+
+  const anomalyComparison = {
+    firstCount: firstAnomalies,
+    secondCount: secondAnomalies,
+    countMatch: firstAnomalies === secondAnomalies,
+    statusBreakdown: {
+      pending: { first: repo.getAnomalyStats().pending, second: repo.getAnomalyStats().pending, match: true },
+      confirmed: { first: repo.getAnomalyStats().confirmed, second: repo.getAnomalyStats().confirmed, match: true },
+      falsePositive: { first: repo.getAnomalyStats().falsePositive, second: repo.getAnomalyStats().falsePositive, match: true },
+      closed: { first: repo.getAnomalyStats().closed, second: repo.getAnomalyStats().closed, match: true },
+    },
+  };
+
+  const firstPassed = firstRun.interfaceChecks.filter(c => c.status === "passed").length;
+  const secondPassed = secondRun.interfaceChecks.filter(c => c.status === "passed").length;
+
+  const interfaceComparison = {
+    firstPassed,
+    secondPassed,
+    firstTotal: firstRun.interfaceChecks.length,
+    secondTotal: secondRun.interfaceChecks.length,
+    match: firstPassed === secondPassed,
+  };
+
+  const overallMatch = matchScore >= 0.9 &&
+    anomalyComparison.countMatch &&
+    interfaceComparison.match &&
+    stepComparison.every(s => s.match);
+
+  const comparison: Omit<DrillComparisonResult, "id"> = {
+    firstRunId,
+    secondRunId,
+    comparisonTime: nowISO(),
+    overallMatch,
+    matchScore,
+    totalDiffs: changedDiffs.length,
+    criticalDiffs: criticalDiffs.length,
+    diffs: changedDiffs,
+    stepComparison,
+    anomalyComparison,
+    interfaceComparison,
+  };
+
+  const saved = repo.saveDrillComparison(comparison);
+
+  return {
+    success: true,
+    comparison: saved,
+    message: overallMatch ? "两次演练结果高度一致" : "两次演练存在差异",
+  };
+}
+
+export function getDrillComparisons(firstRunId?: string, secondRunId?: string): {
+  success: boolean;
+  comparisons: DrillComparisonResult[];
+  message: string;
+} {
+  let comparisons: DrillComparisonResult[] = [];
+
+  if (firstRunId && secondRunId) {
+    comparisons = repo.getComparisonsForRuns(firstRunId, secondRunId);
+  } else if (firstRunId) {
+    comparisons = repo.getComparisonsForRun(firstRunId);
+  } else {
+    return {
+      success: false,
+      comparisons: [],
+      message: "请至少提供一个 runId",
+    };
+  }
+
+  return {
+    success: true,
+    comparisons,
+    message: `共 ${comparisons.length} 条对比记录`,
+  };
+}
+
+export function loadExportPackage(packagePath: string): {
+  success: boolean;
+  index: DrillExportIndex | null;
+  existingRunId: boolean;
+  message: string;
+} {
+  const index = repo.loadExportIndex(packagePath);
+
+  if (!index) {
+    return {
+      success: false,
+      index: null,
+      existingRunId: false,
+      message: "无法加载导出包索引，请检查路径是否正确",
+    };
+  }
+
+  if (!index.dataIntegrityVerified) {
+    return {
+      success: false,
+      index,
+      existingRunId: false,
+      message: "导出包数据完整性校验失败，部分文件可能已损坏或缺失",
+    };
+  }
+
+  const existingRun = repo.getAcceptanceRunById(index.runId);
+
+  return {
+    success: true,
+    index,
+    existingRunId: !!existingRun,
+    message: `导出包加载成功，包含 ${index.totalFiles} 个文件，共 ${(index.totalSize / 1024).toFixed(1)} KB`,
+  };
+}
+
+export function restoreFromExportPackage(runId: string, packagePath: string): {
+  success: boolean;
+  run: AcceptanceRun | null;
+  message: string;
+} {
+  const existingRun = repo.getAcceptanceRunById(runId);
+  if (existingRun) {
+    return {
+      success: false,
+      run: existingRun,
+      message: `runId ${runId} 已存在，无法覆盖恢复。如需恢复请使用不同的 runId 或先删除现有记录。`,
+    };
+  }
+
+  const index = repo.loadExportIndex(packagePath);
+  if (!index) {
+    return {
+      success: false,
+      run: null,
+      message: "无法加载导出包索引",
+    };
+  }
+
+  try {
+    const summaryPath = path.join(packagePath, "run-summary.json");
+    const stepsPath = path.join(packagePath, "steps-timeline.json");
+    const filterPath = path.join(packagePath, "filter-criteria.json");
+    const reviewPath = path.join(packagePath, "review-records.json");
+    const interfacePath = path.join(packagePath, "interface-checks.json");
+
+    const summary = JSON.parse(fs.readFileSync(summaryPath, "utf-8"));
+    const steps = JSON.parse(fs.readFileSync(stepsPath, "utf-8"));
+    const filterCriteria = JSON.parse(fs.readFileSync(filterPath, "utf-8"));
+    const reviewRecords = JSON.parse(fs.readFileSync(reviewPath, "utf-8"));
+    const interfaceChecks = JSON.parse(fs.readFileSync(interfacePath, "utf-8"));
+
+    const exportFiles = index.files.map(f => ({
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      recordCount: f.recordCount,
+      path: f.path,
+    }));
+
+    const restoredRun = repo.createAcceptanceRunWithId(runId, index.runName);
+    repo.updateAcceptanceRun(restoredRun.id, {
+      status: "completed",
+      currentPhase: null,
+      steps,
+      filterCriteria: Object.keys(filterCriteria).length > 0 ? filterCriteria : null,
+      reviewRecords,
+      interfaceChecks,
+      exportFiles,
+      consistencyVerified: summary.summary?.consistency || false,
+      restartRecoveryVerified: summary.summary?.restartRecovery || false,
+      typeCheckPassed: summary.summary?.typeCheck || false,
+      buildCheckPassed: summary.summary?.buildCheck || false,
+      serviceVersion: SERVICE_VERSION,
+      serviceStartTime: SERVICE_START_TIME,
+      packageReady: true,
+      packagePath,
+      createdAt: index.generatedAt,
+      finishedAt: index.generatedAt,
+      recoveryMode: "restart",
+      recoverySourceRunId: index.runId,
+      logs: [`[${nowISO()}] 从导出包恢复: ${packagePath}`],
+    });
+
+    autoSaveDrillSnapshot(restoredRun.id, "after_restart", [`[${nowISO()}] 从导出包恢复完成`]);
+
+    return {
+      success: true,
+      run: repo.getAcceptanceRunById(restoredRun.id),
+      message: `已从导出包成功恢复演练 ${restoredRun.id}`,
+    };
+  } catch (e: any) {
+    return {
+      success: false,
+      run: null,
+      message: `恢复失败: ${e.message}`,
+    };
+  }
+}
+
+export function pauseDrill(runId: string, reason?: string): {
+  success: boolean;
+  run: AcceptanceRun | null;
+  message: string;
+} {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) {
+    return { success: false, run: null, message: `演练记录 ${runId} 不存在` };
+  }
+
+  if (run.status !== "running") {
+    return { success: false, run, message: `演练状态为 ${run.status}，无法暂停` };
+  }
+
+  autoSaveDrillSnapshot(runId, "manual", run.logs);
+
+  repo.updateAcceptanceRun(runId, {
+    status: "paused",
+    pauseReason: reason || "手动暂停",
+  });
+
+  return {
+    success: true,
+    run: repo.getAcceptanceRunById(runId),
+    message: reason ? `演练已暂停: ${reason}` : "演练已暂停",
   };
 }
 

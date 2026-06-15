@@ -1,0 +1,11 @@
+[
+  {
+    "anomalyId": "6f27be60-36a6-4dd6-8cb2-e940fa4e8b64",
+    "fromStatus": "pending",
+    "toStatus": "confirmed",
+    "reviewer": "验收系统",
+    "note": "验收演练自动复核",
+    "evidenceSource": "acceptance-drill",
+    "timestamp": "2026-06-15T08:05:16.456Z"
+  }
+]

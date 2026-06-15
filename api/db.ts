@@ -189,11 +189,58 @@ db.exec(`
     package_path TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    finished_at TEXT
+    finished_at TEXT,
+    recovery_mode TEXT,
+    recovery_source_run_id TEXT,
+    pause_reason TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_acceptance_runs_status ON acceptance_runs(status);
   CREATE INDEX IF NOT EXISTS idx_acceptance_runs_created ON acceptance_runs(created_at);
+  CREATE INDEX IF NOT EXISTS idx_acceptance_runs_recovery ON acceptance_runs(recovery_source_run_id);
+
+  CREATE TABLE IF NOT EXISTS drill_recovery_snapshots (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    snapshot_type TEXT NOT NULL,
+    step_index INTEGER NOT NULL DEFAULT 0,
+    current_phase TEXT,
+    filter_criteria_json TEXT,
+    review_records_json TEXT NOT NULL DEFAULT '[]',
+    interface_checks_json TEXT NOT NULL DEFAULT '[]',
+    steps_json TEXT NOT NULL DEFAULT '[]',
+    anomaly_stats_json TEXT NOT NULL DEFAULT '{}',
+    system_state_json TEXT NOT NULL,
+    service_version TEXT NOT NULL,
+    service_start_time TEXT NOT NULL,
+    operation_logs_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES acceptance_runs(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_drill_snapshots_run ON drill_recovery_snapshots(run_id);
+  CREATE INDEX IF NOT EXISTS idx_drill_snapshots_type ON drill_recovery_snapshots(snapshot_type);
+  CREATE INDEX IF NOT EXISTS idx_drill_snapshots_created ON drill_recovery_snapshots(created_at);
+
+  CREATE TABLE IF NOT EXISTS drill_comparisons (
+    id TEXT PRIMARY KEY,
+    first_run_id TEXT NOT NULL,
+    second_run_id TEXT NOT NULL,
+    comparison_time TEXT NOT NULL,
+    overall_match INTEGER NOT NULL DEFAULT 0,
+    match_score REAL NOT NULL DEFAULT 0,
+    total_diffs INTEGER NOT NULL DEFAULT 0,
+    critical_diffs INTEGER NOT NULL DEFAULT 0,
+    diffs_json TEXT NOT NULL DEFAULT '[]',
+    step_comparison_json TEXT NOT NULL DEFAULT '[]',
+    anomaly_comparison_json TEXT NOT NULL DEFAULT '{}',
+    interface_comparison_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (first_run_id) REFERENCES acceptance_runs(id),
+    FOREIGN KEY (second_run_id) REFERENCES acceptance_runs(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_drill_comparisons_runs ON drill_comparisons(first_run_id, second_run_id);
+  CREATE INDEX IF NOT EXISTS idx_drill_comparisons_time ON drill_comparisons(comparison_time);
 `);
 
 function columnExists(table: string, column: string): boolean {
@@ -215,6 +262,10 @@ addColumnIfMissing("import_batches", "original_content", "TEXT");
 addColumnIfMissing("import_batches", "parent_batch_id", "TEXT");
 addColumnIfMissing("import_batches", "coverage_start_date", "TEXT");
 addColumnIfMissing("import_batches", "coverage_end_date", "TEXT");
+
+addColumnIfMissing("acceptance_runs", "recovery_mode", "TEXT");
+addColumnIfMissing("acceptance_runs", "recovery_source_run_id", "TEXT");
+addColumnIfMissing("acceptance_runs", "pause_reason", "TEXT");
 
 const importBatchRecordsExists = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='import_batch_records'").get() as any) !== undefined;
 if (!importBatchRecordsExists) {

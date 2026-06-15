@@ -1,6 +1,9 @@
 import db from "./db.js";
 export { db };
 import { v4 as uuidv4 } from "uuid";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
 import type {
   Store,
   MeterReading,
@@ -32,6 +35,13 @@ import type {
   AcceptanceFilterCriteria,
   AcceptanceSummary,
   AcceptancePhase,
+  DrillRecoverySnapshot,
+  DrillSnapshotType,
+  DrillComparisonResult,
+  DrillRecoverySource,
+  DrillConflictInfo,
+  DrillRecoveryMode,
+  DrillExportIndex,
 } from "../shared/types.js";
 
 export function getStores(): Store[] {
@@ -984,11 +994,27 @@ function rowToAcceptanceRun(row: any): AcceptanceRun {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     finishedAt: row.finished_at,
+    recoveryMode: row.recovery_mode as DrillRecoveryMode | null,
+    recoverySourceRunId: row.recovery_source_run_id,
+    pauseReason: row.pause_reason,
+  } as AcceptanceRun & {
+    recoveryMode: DrillRecoveryMode | null;
+    recoverySourceRunId: string | null;
+    pauseReason: string | null;
   };
 }
 
 export function createAcceptanceRun(name: string): AcceptanceRun {
   const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO acceptance_runs (id, name, status, steps_json, logs_json, created_at, updated_at)
+     VALUES (?, ?, 'idle', '[]', '[]', ?, ?)`
+  ).run(id, name, now, now);
+  return getAcceptanceRunById(id)!;
+}
+
+export function createAcceptanceRunWithId(id: string, name: string): AcceptanceRun {
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO acceptance_runs (id, name, status, steps_json, logs_json, created_at, updated_at)
@@ -1032,6 +1058,10 @@ export function updateAcceptanceRun(id: string, updates: Partial<{
   packageReady: boolean;
   packagePath: string;
   finishedAt: string;
+  recoveryMode: DrillRecoveryMode;
+  recoverySourceRunId: string;
+  pauseReason: string;
+  createdAt: string;
 }>): AcceptanceRun | null {
   const existing = getAcceptanceRunById(id);
   if (!existing) return null;
@@ -1061,6 +1091,10 @@ export function updateAcceptanceRun(id: string, updates: Partial<{
   if (updates.packageReady !== undefined) { sets.push("package_ready = ?"); vals.push(updates.packageReady ? 1 : 0); }
   if (updates.packagePath !== undefined) { sets.push("package_path = ?"); vals.push(updates.packagePath); }
   if (updates.finishedAt !== undefined) { sets.push("finished_at = ?"); vals.push(updates.finishedAt); }
+  if (updates.recoveryMode !== undefined) { sets.push("recovery_mode = ?"); vals.push(updates.recoveryMode); }
+  if (updates.recoverySourceRunId !== undefined) { sets.push("recovery_source_run_id = ?"); vals.push(updates.recoverySourceRunId); }
+  if (updates.pauseReason !== undefined) { sets.push("pause_reason = ?"); vals.push(updates.pauseReason); }
+  if (updates.createdAt !== undefined) { sets.push("created_at = ?"); vals.push(updates.createdAt); }
 
   sets.push("updated_at = ?");
   vals.push(new Date().toISOString());
@@ -1108,5 +1142,294 @@ export function getAcceptanceSummary(): AcceptanceSummary {
     consistencyVerified,
     restartRecoveryVerified,
     recentRuns,
+  };
+}
+
+function rowToDrillSnapshot(row: any): DrillRecoverySnapshot {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    snapshotType: row.snapshot_type as DrillSnapshotType,
+    stepIndex: row.step_index,
+    currentPhase: row.current_phase as AcceptancePhase | null,
+    filterCriteria: row.filter_criteria_json ? JSON.parse(row.filter_criteria_json) as AcceptanceFilterCriteria : null,
+    reviewRecords: JSON.parse(row.review_records_json || "[]") as AcceptanceReviewRecord[],
+    interfaceChecks: JSON.parse(row.interface_checks_json || "[]") as AcceptanceInterfaceCheck[],
+    steps: JSON.parse(row.steps_json || "[]") as AcceptanceStepResult[],
+    anomalyStats: JSON.parse(row.anomaly_stats_json || "{}") as { pending: number; confirmed: number; falsePositive: number; closed: number; total: number },
+    systemState: row.system_state_json,
+    serviceVersion: row.service_version,
+    serviceStartTime: row.service_start_time,
+    operationLogs: JSON.parse(row.operation_logs_json || "[]") as string[],
+    createdAt: row.created_at,
+  };
+}
+
+export function saveDrillSnapshot(snapshot: Omit<DrillRecoverySnapshot, "id" | "createdAt">): DrillRecoverySnapshot {
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO drill_recovery_snapshots (
+      id, run_id, snapshot_type, step_index, current_phase,
+      filter_criteria_json, review_records_json, interface_checks_json, steps_json,
+      anomaly_stats_json, system_state_json, service_version, service_start_time,
+      operation_logs_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    snapshot.runId,
+    snapshot.snapshotType,
+    snapshot.stepIndex,
+    snapshot.currentPhase,
+    snapshot.filterCriteria ? JSON.stringify(snapshot.filterCriteria) : null,
+    JSON.stringify(snapshot.reviewRecords),
+    JSON.stringify(snapshot.interfaceChecks),
+    JSON.stringify(snapshot.steps),
+    JSON.stringify(snapshot.anomalyStats),
+    snapshot.systemState,
+    snapshot.serviceVersion,
+    snapshot.serviceStartTime,
+    JSON.stringify(snapshot.operationLogs),
+    now
+  );
+  return getDrillSnapshotById(id)!;
+}
+
+export function getDrillSnapshotById(id: string): DrillRecoverySnapshot | null {
+  const row = db.prepare("SELECT * FROM drill_recovery_snapshots WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  return rowToDrillSnapshot(row);
+}
+
+export function getLatestSnapshotForRun(runId: string): DrillRecoverySnapshot | null {
+  const row = db.prepare(
+    "SELECT * FROM drill_recovery_snapshots WHERE run_id = ? ORDER BY created_at DESC LIMIT 1"
+  ).get(runId) as any;
+  if (!row) return null;
+  return rowToDrillSnapshot(row);
+}
+
+export function getSnapshotsForRun(runId: string): DrillRecoverySnapshot[] {
+  const rows = db.prepare(
+    "SELECT * FROM drill_recovery_snapshots WHERE run_id = ? ORDER BY created_at ASC"
+  ).all(runId) as any[];
+  return rows.map(rowToDrillSnapshot);
+}
+
+export function getSnapshotsByType(runId: string, snapshotType: DrillSnapshotType): DrillRecoverySnapshot[] {
+  const rows = db.prepare(
+    "SELECT * FROM drill_recovery_snapshots WHERE run_id = ? AND snapshot_type = ? ORDER BY created_at ASC"
+  ).all(runId, snapshotType) as any[];
+  return rows.map(rowToDrillSnapshot);
+}
+
+export function deleteSnapshotsForRun(runId: string): number {
+  const result = db.prepare("DELETE FROM drill_recovery_snapshots WHERE run_id = ?").run(runId);
+  return result.changes;
+}
+
+function rowToDrillComparison(row: any): DrillComparisonResult {
+  return {
+    id: row.id,
+    firstRunId: row.first_run_id,
+    secondRunId: row.second_run_id,
+    comparisonTime: row.comparison_time,
+    overallMatch: !!row.overall_match,
+    matchScore: row.match_score,
+    totalDiffs: row.total_diffs,
+    criticalDiffs: row.critical_diffs,
+    diffs: JSON.parse(row.diffs_json || "[]"),
+    stepComparison: JSON.parse(row.step_comparison_json || "[]"),
+    anomalyComparison: JSON.parse(row.anomaly_comparison_json || "{}"),
+    interfaceComparison: JSON.parse(row.interface_comparison_json || "{}"),
+  };
+}
+
+export function saveDrillComparison(comparison: Omit<DrillComparisonResult, "id">): DrillComparisonResult {
+  const id = uuidv4();
+  db.prepare(
+    `INSERT INTO drill_comparisons (
+      id, first_run_id, second_run_id, comparison_time, overall_match,
+      match_score, total_diffs, critical_diffs, diffs_json, step_comparison_json,
+      anomaly_comparison_json, interface_comparison_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    comparison.firstRunId,
+    comparison.secondRunId,
+    comparison.comparisonTime,
+    comparison.overallMatch ? 1 : 0,
+    comparison.matchScore,
+    comparison.totalDiffs,
+    comparison.criticalDiffs,
+    JSON.stringify(comparison.diffs),
+    JSON.stringify(comparison.stepComparison),
+    JSON.stringify(comparison.anomalyComparison),
+    JSON.stringify(comparison.interfaceComparison)
+  );
+  return getDrillComparisonById(id)!;
+}
+
+export function getDrillComparisonById(id: string): DrillComparisonResult | null {
+  const row = db.prepare("SELECT * FROM drill_comparisons WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  return rowToDrillComparison(row);
+}
+
+export function getComparisonsForRuns(firstRunId: string, secondRunId: string): DrillComparisonResult[] {
+  const rows = db.prepare(
+    `SELECT * FROM drill_comparisons 
+     WHERE (first_run_id = ? AND second_run_id = ?) 
+        OR (first_run_id = ? AND second_run_id = ?)
+     ORDER BY comparison_time DESC`
+  ).all(firstRunId, secondRunId, secondRunId, firstRunId) as any[];
+  return rows.map(rowToDrillComparison);
+}
+
+export function getComparisonsForRun(runId: string): DrillComparisonResult[] {
+  const rows = db.prepare(
+    `SELECT * FROM drill_comparisons 
+     WHERE first_run_id = ? OR second_run_id = ?
+     ORDER BY comparison_time DESC`
+  ).all(runId, runId) as any[];
+  return rows.map(rowToDrillComparison);
+}
+
+export function deleteComparisonsForRun(runId: string): number {
+  const result = db.prepare(
+    "DELETE FROM drill_comparisons WHERE first_run_id = ? OR second_run_id = ?"
+  ).run(runId, runId);
+  return result.changes;
+}
+
+export function getDrillRecoverySource(runId: string, currentServiceStartTime: string): DrillRecoverySource | null {
+  const run = getAcceptanceRunById(runId);
+  if (!run) return null;
+
+  const lastSnapshot = getLatestSnapshotForRun(runId);
+  const completedSteps = run.steps.filter(s => s.status === "passed" || s.status === "failed" || s.status === "skipped").length;
+  const totalSteps = run.steps.length;
+  const serviceRestarted = run.serviceStartTime !== currentServiceStartTime;
+  const canContinue = (run.status === "paused" || run.status === "running" || run.status === "idle") && !!lastSnapshot;
+  const canRestart = run.status !== "running";
+
+  return {
+    runId: run.id,
+    runName: run.name,
+    originalStartTime: run.createdAt,
+    lastSnapshotTime: lastSnapshot?.createdAt || run.updatedAt,
+    pauseReason: (run as any).pauseReason || null,
+    completedSteps,
+    totalSteps,
+    serviceRestarted,
+    canContinue,
+    canRestart,
+  };
+}
+
+export function checkForConflicts(runId: string, mode: DrillRecoveryMode, currentServiceStartTime: string): DrillConflictInfo[] {
+  const conflicts: DrillConflictInfo[] = [];
+  const run = getAcceptanceRunById(runId);
+
+  if (!run) {
+    conflicts.push({
+      type: "run_exists",
+      runId,
+      message: `演练记录 ${runId} 不存在，无法恢复`,
+      existingResource: "acceptance_run",
+      suggestedAction: "abort",
+    });
+    return conflicts;
+  }
+
+  if (run.status === "running" && mode === "restart") {
+    conflicts.push({
+      type: "in_progress",
+      runId,
+      message: `演练 ${runId} 正在运行中，无法重新开始`,
+      existingResource: "running_drill",
+      suggestedAction: "abort",
+    });
+  }
+
+  if (run.packageReady && mode === "continue") {
+    const existingSnapshots = getSnapshotsForRun(runId);
+    if (existingSnapshots.length > 0 && existingSnapshots[existingSnapshots.length - 1].serviceStartTime !== currentServiceStartTime) {
+      conflicts.push({
+        type: "snapshot_conflict",
+        runId,
+        message: "服务已重启，快照可能与当前状态不一致",
+        existingResource: "drill_snapshot",
+        suggestedAction: "overwrite",
+      });
+    }
+  }
+
+  return conflicts;
+}
+
+export function loadExportIndex(packagePath: string): DrillExportIndex | null {
+  const indexPath = path.join(packagePath, "export-index.json");
+  const manifestPath = path.join(packagePath, "manifest.json");
+
+  if (!fs.existsSync(indexPath) || !fs.existsSync(manifestPath)) {
+    return null;
+  }
+
+  try {
+    const indexData = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
+    const manifestData = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+
+    const manifestHash = crypto.createHash("sha256").update(JSON.stringify(manifestData)).digest("hex");
+
+    let dataIntegrityVerified = true;
+    for (const file of indexData.files || []) {
+      if (file.name === "export-index.json") continue;
+      const filePath = path.join(packagePath, file.name);
+      if (!fs.existsSync(filePath)) {
+        dataIntegrityVerified = false;
+        break;
+      }
+      const stat = fs.statSync(filePath);
+      if (stat.size !== file.size) {
+        dataIntegrityVerified = false;
+        break;
+      }
+    }
+
+    return {
+      runId: manifestData.runId,
+      runName: manifestData.runName,
+      generatedAt: manifestData.createdAt,
+      restoredAt: new Date().toISOString(),
+      totalFiles: indexData.totalFiles || 0,
+      totalSize: indexData.totalSize || 0,
+      files: (indexData.files || []).map((f: any) => ({
+        name: f.name,
+        type: f.type,
+        size: f.size,
+        recordCount: f.recordCount,
+        path: path.join(packagePath, f.name),
+      })),
+      manifestHash,
+      dataIntegrityVerified,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+export function getAnomalyStats(): { pending: number; confirmed: number; falsePositive: number; closed: number; total: number } {
+  const pending = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'pending'").get() as any).cnt;
+  const confirmed = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'confirmed'").get() as any).cnt;
+  const falsePositive = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'false_positive'").get() as any).cnt;
+  const closed = (db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status = 'closed'").get() as any).cnt;
+
+  return {
+    pending,
+    confirmed,
+    falsePositive,
+    closed,
+    total: pending + confirmed + falsePositive + closed,
   };
 }

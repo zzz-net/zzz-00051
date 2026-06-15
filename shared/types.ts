@@ -316,3 +316,133 @@ export interface AcceptanceSummary {
   recentRuns: AcceptanceRun[];
 }
 
+export type DrillRecoveryMode = "continue" | "restart";
+
+export type DrillSnapshotType = "before_drill" | "after_drill" | "after_restart" | "manual";
+
+export interface DrillRecoverySnapshot {
+  id: string;
+  runId: string;
+  snapshotType: DrillSnapshotType;
+  stepIndex: number;
+  currentPhase: AcceptancePhase | null;
+  filterCriteria: AcceptanceFilterCriteria | null;
+  reviewRecords: AcceptanceReviewRecord[];
+  interfaceChecks: AcceptanceInterfaceCheck[];
+  steps: AcceptanceStepResult[];
+  anomalyStats: {
+    pending: number;
+    confirmed: number;
+    falsePositive: number;
+    closed: number;
+    total: number;
+  };
+  systemState: string;
+  serviceVersion: string;
+  serviceStartTime: string;
+  operationLogs: string[];
+  createdAt: string;
+}
+
+export interface DrillComparisonDiff {
+  field: string;
+  firstValue: any;
+  secondValue: any;
+  changeType: "added" | "removed" | "modified" | "unchanged";
+}
+
+export interface DrillComparisonResult {
+  id: string;
+  firstRunId: string;
+  secondRunId: string;
+  comparisonTime: string;
+  overallMatch: boolean;
+  matchScore: number;
+  totalDiffs: number;
+  criticalDiffs: number;
+  diffs: DrillComparisonDiff[];
+  stepComparison: Array<{
+    step: string;
+    firstStatus: AcceptanceStepStatus;
+    secondStatus: AcceptanceStepStatus;
+    match: boolean;
+  }>;
+  anomalyComparison: {
+    firstCount: number;
+    secondCount: number;
+    countMatch: boolean;
+    statusBreakdown: {
+      pending: { first: number; second: number; match: boolean };
+      confirmed: { first: number; second: number; match: boolean };
+      falsePositive: { first: number; second: number; match: boolean };
+      closed: { first: number; second: number; match: boolean };
+    };
+  };
+  interfaceComparison: {
+    firstPassed: number;
+    secondPassed: number;
+    firstTotal: number;
+    secondTotal: number;
+    match: boolean;
+  };
+}
+
+export interface DrillRecoverySource {
+  runId: string;
+  runName: string;
+  originalStartTime: string;
+  lastSnapshotTime: string;
+  pauseReason: string | null;
+  completedSteps: number;
+  totalSteps: number;
+  serviceRestarted: boolean;
+  canContinue: boolean;
+  canRestart: boolean;
+}
+
+export interface DrillConflictInfo {
+  type: "run_exists" | "export_exists" | "snapshot_conflict" | "in_progress";
+  runId: string;
+  message: string;
+  existingResource: string;
+  suggestedAction: "overwrite" | "use_existing" | "abort";
+}
+
+export interface DrillRecoveryStatus {
+  runId: string;
+  runName: string;
+  currentStatus: AcceptanceRunStatus;
+  currentPhase: AcceptancePhase | null;
+  recoveryMode: DrillRecoveryMode | null;
+  recoverySource: DrillRecoverySource | null;
+  lastSnapshot: DrillRecoverySnapshot | null;
+  conflicts: DrillConflictInfo[];
+  exportIndex: AcceptanceExportFile[] | null;
+  packageReady: boolean;
+  packagePath: string | null;
+  serviceStartTime: string;
+  serviceVersion: string;
+  serviceRestarted: boolean;
+}
+
+export interface DrillRecoveryAction {
+  mode: DrillRecoveryMode;
+  runId: string;
+  timestamp: string;
+  success: boolean;
+  message: string;
+  recoveredFromSnapshotId: string | null;
+}
+
+export interface DrillExportIndex {
+  runId: string;
+  runName: string;
+  generatedAt: string;
+  restoredAt: string | null;
+  totalFiles: number;
+  totalSize: number;
+  files: AcceptanceExportFile[];
+  manifestHash: string;
+  dataIntegrityVerified: boolean;
+}
+

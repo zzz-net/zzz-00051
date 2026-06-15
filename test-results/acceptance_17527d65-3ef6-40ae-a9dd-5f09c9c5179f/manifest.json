@@ -1,0 +1,15 @@
+{
+  "packageVersion": "1.0",
+  "runId": "17527d65-3ef6-40ae-a9dd-5f09c9c5179f",
+  "runName": "演练恢复台验收测试-mqey8ci57mk8-restart测试",
+  "createdAt": "2026-06-15T08:26:55.687Z",
+  "files": [
+    "manifest.json",
+    "filter-criteria.json",
+    "review-records.json",
+    "interface-checks.json",
+    "export-index.json",
+    "steps-timeline.json",
+    "run-summary.json"
+  ]
+}

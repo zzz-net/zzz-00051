@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-06-15T08:27:34.787Z",
+  "totalFiles": 8,
+  "totalSize": 37456,
+  "files": [
+    {
+      "name": "manifest.json",
+      "type": "json",
+      "size": 392,
+      "recordCount": 1
+    },
+    {
+      "name": "filter-criteria.json",
+      "type": "json",
+      "size": 52,
+      "recordCount": 1
+    },
+    {
+      "name": "review-records.json",
+      "type": "json",
+      "size": 284,
+      "recordCount": 1
+    },
+    {
+      "name": "interface-checks.json",
+      "type": "json",
+      "size": 661,
+      "recordCount": 4
+    },
+    {
+      "name": "steps-timeline.json",
+      "type": "json",
+      "size": 3135,
+      "recordCount": 11
+    },
+    {
+      "name": "run-summary.json",
+      "type": "json",
+      "size": 3846,
+      "recordCount": 1
+    },
+    {
+      "name": "anomalies_export.json",
+      "type": "json",
+      "size": 22809,
+      "recordCount": 26
+    },
+    {
+      "name": "anomalies_export.csv",
+      "type": "csv",
+      "size": 6277,
+      "recordCount": 26
+    }
+  ]
+}
