@@ -15,6 +15,7 @@ import trendRoutes from './routes/trends.js'
 import storeRoutes from './routes/stores.js'
 import verificationRoutes from './routes/verification.js'
 import cockpitRoutes from './routes/cockpit.js'
+import acceptanceRoutes from './routes/acceptance.js'
 import { seedSampleData } from './seedData.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -40,6 +41,7 @@ app.use('/api/trends', trendRoutes)
 app.use('/api/stores', storeRoutes)
 app.use('/api/verification', verificationRoutes)
 app.use('/api/cockpit', cockpitRoutes)
+app.use('/api/acceptance', acceptanceRoutes)
 
 app.use(
   '/api/health',

@@ -198,3 +198,121 @@ export interface CockpitSummary {
   recentRuns: CockpitRun[];
 }
 
+export type AcceptancePhase =
+  | "preparation"
+  | "self_check"
+  | "drill_run"
+  | "restart_verification"
+  | "final_packaging";
+
+export type AcceptanceStepStatus = "pending" | "running" | "passed" | "failed" | "skipped";
+
+export interface AcceptanceStepResult {
+  step: string;
+  label: string;
+  phase: AcceptancePhase;
+  status: AcceptanceStepStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  detail: string | null;
+  error: string | null;
+}
+
+export type AcceptanceRunStatus = "idle" | "running" | "paused" | "completed" | "failed";
+
+export interface AcceptanceFilterCriteria {
+  status?: AnomalyStatus;
+  storeId?: string;
+  startDate?: string;
+  endDate?: string;
+  minDeviationRate?: number;
+}
+
+export interface AcceptanceReviewRecord {
+  anomalyId: string;
+  fromStatus: AnomalyStatus;
+  toStatus: AnomalyStatus;
+  reviewer: string;
+  note: string;
+  evidenceSource: string;
+  timestamp: string;
+}
+
+export interface AcceptanceInterfaceCheck {
+  name: string;
+  endpoint: string;
+  method: string;
+  status: "passed" | "failed";
+  responseTime: number;
+  detail: string;
+}
+
+export interface AcceptanceExportFile {
+  name: string;
+  type: "csv" | "json";
+  size: number;
+  recordCount: number;
+  path: string;
+}
+
+export interface AcceptanceRun {
+  id: string;
+  name: string;
+  status: AcceptanceRunStatus;
+  currentPhase: AcceptancePhase | null;
+  steps: AcceptanceStepResult[];
+  filterCriteria: AcceptanceFilterCriteria | null;
+  reviewRecords: AcceptanceReviewRecord[];
+  interfaceChecks: AcceptanceInterfaceCheck[];
+  exportFiles: AcceptanceExportFile[];
+  snapshotBeforeDrill: string | null;
+  snapshotAfterDrill: string | null;
+  snapshotAfterRestart: string | null;
+  firstDrillResult: string | null;
+  secondDrillResult: string | null;
+  consistencyVerified: boolean;
+  restartRecoveryVerified: boolean;
+  typeCheckPassed: boolean;
+  buildCheckPassed: boolean;
+  serviceVersion: string | null;
+  serviceStartTime: string | null;
+  logs: string[];
+  packageReady: boolean;
+  packagePath: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+export interface AcceptancePackageInfo {
+  runId: string;
+  runName: string;
+  createdAt: string;
+  filterCriteria: AcceptanceFilterCriteria | null;
+  reviewRecordCount: number;
+  interfaceCheckCount: number;
+  interfaceCheckPassed: number;
+  exportFileCount: number;
+  steps: AcceptanceStepResult[];
+  summary: {
+    typeCheck: boolean;
+    buildCheck: boolean;
+    consistency: boolean;
+    restartRecovery: boolean;
+  };
+}
+
+export interface AcceptanceSummary {
+  totalRuns: number;
+  lastRunStatus: AcceptanceRunStatus | null;
+  lastRunAt: string | null;
+  lastRunId: string | null;
+  totalPassed: number;
+  totalFailed: number;
+  typeCheckVerified: boolean;
+  buildCheckVerified: boolean;
+  consistencyVerified: boolean;
+  restartRecoveryVerified: boolean;
+  recentRuns: AcceptanceRun[];
+}
+

@@ -23,6 +23,15 @@ import type {
   CockpitStepResult,
   CockpitCheckpoint,
   CockpitSummary,
+  AcceptanceRun,
+  AcceptanceRunStatus,
+  AcceptanceStepResult,
+  AcceptanceReviewRecord,
+  AcceptanceInterfaceCheck,
+  AcceptanceExportFile,
+  AcceptanceFilterCriteria,
+  AcceptanceSummary,
+  AcceptancePhase,
 } from "../shared/types.js";
 
 export function getStores(): Store[] {
@@ -943,6 +952,161 @@ export function getCockpitSummary(): CockpitSummary {
     importConflictFree,
     filterReviewPreserved,
     exportConsistent,
+    recentRuns,
+  };
+}
+
+function rowToAcceptanceRun(row: any): AcceptanceRun {
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status as AcceptanceRunStatus,
+    currentPhase: row.current_phase as AcceptancePhase | null,
+    steps: JSON.parse(row.steps_json || "[]") as AcceptanceStepResult[],
+    filterCriteria: row.filter_criteria_json ? (JSON.parse(row.filter_criteria_json) as AcceptanceFilterCriteria) : null,
+    reviewRecords: JSON.parse(row.review_records_json || "[]") as AcceptanceReviewRecord[],
+    interfaceChecks: JSON.parse(row.interface_checks_json || "[]") as AcceptanceInterfaceCheck[],
+    exportFiles: JSON.parse(row.export_files_json || "[]") as AcceptanceExportFile[],
+    snapshotBeforeDrill: row.snapshot_before_drill,
+    snapshotAfterDrill: row.snapshot_after_drill,
+    snapshotAfterRestart: row.snapshot_after_restart,
+    firstDrillResult: row.first_drill_result,
+    secondDrillResult: row.second_drill_result,
+    consistencyVerified: !!row.consistency_verified,
+    restartRecoveryVerified: !!row.restart_recovery_verified,
+    typeCheckPassed: !!row.type_check_passed,
+    buildCheckPassed: !!row.build_check_passed,
+    serviceVersion: row.service_version,
+    serviceStartTime: row.service_start_time,
+    logs: JSON.parse(row.logs_json || "[]") as string[],
+    packageReady: !!row.package_ready,
+    packagePath: row.package_path,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    finishedAt: row.finished_at,
+  };
+}
+
+export function createAcceptanceRun(name: string): AcceptanceRun {
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO acceptance_runs (id, name, status, steps_json, logs_json, created_at, updated_at)
+     VALUES (?, ?, 'idle', '[]', '[]', ?, ?)`
+  ).run(id, name, now, now);
+  return getAcceptanceRunById(id)!;
+}
+
+export function getAcceptanceRunById(id: string): AcceptanceRun | null {
+  const row = db.prepare("SELECT * FROM acceptance_runs WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  return rowToAcceptanceRun(row);
+}
+
+export function getLastAcceptanceRun(): AcceptanceRun | null {
+  const row = db.prepare("SELECT * FROM acceptance_runs ORDER BY created_at DESC LIMIT 1").get() as any;
+  if (!row) return null;
+  return rowToAcceptanceRun(row);
+}
+
+export function updateAcceptanceRun(id: string, updates: Partial<{
+  status: AcceptanceRunStatus;
+  currentPhase: AcceptancePhase;
+  steps: AcceptanceStepResult[];
+  filterCriteria: AcceptanceFilterCriteria;
+  reviewRecords: AcceptanceReviewRecord[];
+  interfaceChecks: AcceptanceInterfaceCheck[];
+  exportFiles: AcceptanceExportFile[];
+  snapshotBeforeDrill: string;
+  snapshotAfterDrill: string;
+  snapshotAfterRestart: string;
+  firstDrillResult: string;
+  secondDrillResult: string;
+  consistencyVerified: boolean;
+  restartRecoveryVerified: boolean;
+  typeCheckPassed: boolean;
+  buildCheckPassed: boolean;
+  serviceVersion: string;
+  serviceStartTime: string;
+  logs: string[];
+  packageReady: boolean;
+  packagePath: string;
+  finishedAt: string;
+}>): AcceptanceRun | null {
+  const existing = getAcceptanceRunById(id);
+  if (!existing) return null;
+
+  const sets: string[] = [];
+  const vals: any[] = [];
+
+  if (updates.status !== undefined) { sets.push("status = ?"); vals.push(updates.status); }
+  if (updates.currentPhase !== undefined) { sets.push("current_phase = ?"); vals.push(updates.currentPhase); }
+  if (updates.steps !== undefined) { sets.push("steps_json = ?"); vals.push(JSON.stringify(updates.steps)); }
+  if (updates.filterCriteria !== undefined) { sets.push("filter_criteria_json = ?"); vals.push(JSON.stringify(updates.filterCriteria)); }
+  if (updates.reviewRecords !== undefined) { sets.push("review_records_json = ?"); vals.push(JSON.stringify(updates.reviewRecords)); }
+  if (updates.interfaceChecks !== undefined) { sets.push("interface_checks_json = ?"); vals.push(JSON.stringify(updates.interfaceChecks)); }
+  if (updates.exportFiles !== undefined) { sets.push("export_files_json = ?"); vals.push(JSON.stringify(updates.exportFiles)); }
+  if (updates.snapshotBeforeDrill !== undefined) { sets.push("snapshot_before_drill = ?"); vals.push(updates.snapshotBeforeDrill); }
+  if (updates.snapshotAfterDrill !== undefined) { sets.push("snapshot_after_drill = ?"); vals.push(updates.snapshotAfterDrill); }
+  if (updates.snapshotAfterRestart !== undefined) { sets.push("snapshot_after_restart = ?"); vals.push(updates.snapshotAfterRestart); }
+  if (updates.firstDrillResult !== undefined) { sets.push("first_drill_result = ?"); vals.push(updates.firstDrillResult); }
+  if (updates.secondDrillResult !== undefined) { sets.push("second_drill_result = ?"); vals.push(updates.secondDrillResult); }
+  if (updates.consistencyVerified !== undefined) { sets.push("consistency_verified = ?"); vals.push(updates.consistencyVerified ? 1 : 0); }
+  if (updates.restartRecoveryVerified !== undefined) { sets.push("restart_recovery_verified = ?"); vals.push(updates.restartRecoveryVerified ? 1 : 0); }
+  if (updates.typeCheckPassed !== undefined) { sets.push("type_check_passed = ?"); vals.push(updates.typeCheckPassed ? 1 : 0); }
+  if (updates.buildCheckPassed !== undefined) { sets.push("build_check_passed = ?"); vals.push(updates.buildCheckPassed ? 1 : 0); }
+  if (updates.serviceVersion !== undefined) { sets.push("service_version = ?"); vals.push(updates.serviceVersion); }
+  if (updates.serviceStartTime !== undefined) { sets.push("service_start_time = ?"); vals.push(updates.serviceStartTime); }
+  if (updates.logs !== undefined) { sets.push("logs_json = ?"); vals.push(JSON.stringify(updates.logs)); }
+  if (updates.packageReady !== undefined) { sets.push("package_ready = ?"); vals.push(updates.packageReady ? 1 : 0); }
+  if (updates.packagePath !== undefined) { sets.push("package_path = ?"); vals.push(updates.packagePath); }
+  if (updates.finishedAt !== undefined) { sets.push("finished_at = ?"); vals.push(updates.finishedAt); }
+
+  sets.push("updated_at = ?");
+  vals.push(new Date().toISOString());
+  vals.push(id);
+
+  db.prepare(`UPDATE acceptance_runs SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  return getAcceptanceRunById(id);
+}
+
+export function getAcceptanceRuns(limit = 20): AcceptanceRun[] {
+  const rows = db.prepare("SELECT * FROM acceptance_runs ORDER BY created_at DESC LIMIT ?").all(limit) as any[];
+  return rows.map(rowToAcceptanceRun);
+}
+
+export function getAcceptanceSummary(): AcceptanceSummary {
+  const totalRuns = (db.prepare("SELECT COUNT(*) as cnt FROM acceptance_runs").get() as any).cnt;
+  const lastRun = db.prepare("SELECT * FROM acceptance_runs ORDER BY created_at DESC LIMIT 1").get() as any;
+  const recentRuns = getAcceptanceRuns(10);
+
+  const totalPassed = (db.prepare("SELECT COUNT(*) as cnt FROM acceptance_runs WHERE status = 'completed'").get() as any).cnt;
+  const totalFailed = (db.prepare("SELECT COUNT(*) as cnt FROM acceptance_runs WHERE status = 'failed'").get() as any).cnt;
+
+  let typeCheckVerified = false;
+  let buildCheckVerified = false;
+  let consistencyVerified = false;
+  let restartRecoveryVerified = false;
+
+  if (lastRun) {
+    const run = rowToAcceptanceRun(lastRun);
+    typeCheckVerified = run.typeCheckPassed;
+    buildCheckVerified = run.buildCheckPassed;
+    consistencyVerified = run.consistencyVerified;
+    restartRecoveryVerified = run.restartRecoveryVerified;
+  }
+
+  return {
+    totalRuns,
+    lastRunStatus: lastRun ? (lastRun.status as AcceptanceRunStatus) : null,
+    lastRunAt: lastRun ? lastRun.created_at : null,
+    lastRunId: lastRun ? lastRun.id : null,
+    totalPassed,
+    totalFailed,
+    typeCheckVerified,
+    buildCheckVerified,
+    consistencyVerified,
+    restartRecoveryVerified,
     recentRuns,
   };
 }

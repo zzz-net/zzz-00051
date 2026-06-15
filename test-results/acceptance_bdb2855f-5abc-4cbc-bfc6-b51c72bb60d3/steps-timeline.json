@@ -1,0 +1,112 @@
+[
+  {
+    "step": "type_check",
+    "label": "类型检查",
+    "phase": "self_check",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:01:33.745Z",
+    "finishedAt": "2026-06-15T07:01:44.329Z",
+    "detail": "TypeScript 类型检查通过",
+    "error": null
+  },
+  {
+    "step": "build_check",
+    "label": "构建检查",
+    "phase": "self_check",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:01:44.330Z",
+    "finishedAt": "2026-06-15T07:02:00.626Z",
+    "detail": "Vite 构建成功",
+    "error": null
+  },
+  {
+    "step": "service_version_check",
+    "label": "服务版本确认",
+    "phase": "self_check",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:02:00.627Z",
+    "finishedAt": "2026-06-15T07:02:00.627Z",
+    "detail": "服务启动时间匹配: 2026-06-15T06:54:56.004Z",
+    "error": null
+  },
+  {
+    "step": "data_isolation",
+    "label": "隔离数据准备",
+    "phase": "preparation",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:02:00.628Z",
+    "finishedAt": "2026-06-15T07:02:00.628Z",
+    "detail": "清理 0 条旧数据，前缀: acc-bdb2855f",
+    "error": null
+  },
+  {
+    "step": "batch_import",
+    "label": "批次导入与冲突处理",
+    "phase": "preparation",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:02:00.629Z",
+    "finishedAt": "2026-06-15T07:02:00.642Z",
+    "detail": "读数导入成功=14, 冲突检测=已处理",
+    "error": null
+  },
+  {
+    "step": "first_drill",
+    "label": "第一次演练执行",
+    "phase": "drill_run",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:02:00.642Z",
+    "finishedAt": "2026-06-15T07:02:00.796Z",
+    "detail": "异常=25, 接口检查=4/4",
+    "error": null
+  },
+  {
+    "step": "snapshot_before_second",
+    "label": "第二次演练前快照",
+    "phase": "drill_run",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:02:00.798Z",
+    "finishedAt": "2026-06-15T07:02:00.799Z",
+    "detail": "门店=25, 异常=25",
+    "error": null
+  },
+  {
+    "step": "second_drill",
+    "label": "第二次演练执行",
+    "phase": "drill_run",
+    "status": "passed",
+    "startedAt": "2026-06-15T07:02:00.800Z",
+    "finishedAt": "2026-06-15T07:02:00.880Z",
+    "detail": "异常=27, 接口检查=4/4",
+    "error": null
+  },
+  {
+    "step": "consistency_check",
+    "label": "两次演练一致性验证",
+    "phase": "drill_run",
+    "status": "failed",
+    "startedAt": "2026-06-15T07:02:00.882Z",
+    "finishedAt": "2026-06-15T07:02:00.884Z",
+    "detail": "第一次异常=25, 第二次异常=27, 不一致",
+    "error": null
+  },
+  {
+    "step": "restart_recovery_check",
+    "label": "重启回读验证",
+    "phase": "restart_verification",
+    "status": "skipped",
+    "startedAt": "2026-06-15T07:02:00.885Z",
+    "finishedAt": "2026-06-15T07:02:00.886Z",
+    "detail": "重启验证需在服务重启后执行",
+    "error": null
+  },
+  {
+    "step": "package_generation",
+    "label": "生成验收包",
+    "phase": "final_packaging",
+    "status": "pending",
+    "startedAt": null,
+    "finishedAt": null,
+    "detail": null,
+    "error": null
+  }
+]

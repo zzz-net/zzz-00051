@@ -1,0 +1,15 @@
+{
+  "packageVersion": "1.0",
+  "runId": "724f01ad-8f49-45de-b664-17a9c22fde49",
+  "runName": "reviewer-run-1",
+  "createdAt": "2026-06-15T07:15:23.778Z",
+  "files": [
+    "manifest.json",
+    "filter-criteria.json",
+    "review-records.json",
+    "interface-checks.json",
+    "export-index.json",
+    "steps-timeline.json",
+    "run-summary.json"
+  ]
+}

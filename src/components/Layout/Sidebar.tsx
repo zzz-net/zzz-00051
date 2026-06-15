@@ -6,6 +6,7 @@ import {
   Settings,
   User,
   Plane,
+  CheckCircle2,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
@@ -18,6 +19,7 @@ export default function Sidebar() {
     { path: "/data", label: "数据管理", icon: Database },
     { path: "/anomaly", label: "异常复盘", icon: AlertTriangle },
     { path: "/cockpit", label: "验收驾驶舱", icon: Plane },
+    { path: "/acceptance", label: "验收演练中心", icon: CheckCircle2 },
   ];
 
   return (

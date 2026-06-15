@@ -162,6 +162,38 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_anomalies_status ON anomalies(status);
   CREATE INDEX IF NOT EXISTS idx_anomalies_date ON anomalies(date);
   CREATE INDEX IF NOT EXISTS idx_review_logs_anomaly ON review_logs(anomaly_id);
+
+  CREATE TABLE IF NOT EXISTS acceptance_runs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'idle',
+    current_phase TEXT,
+    steps_json TEXT NOT NULL DEFAULT '[]',
+    filter_criteria_json TEXT,
+    review_records_json TEXT NOT NULL DEFAULT '[]',
+    interface_checks_json TEXT NOT NULL DEFAULT '[]',
+    export_files_json TEXT NOT NULL DEFAULT '[]',
+    snapshot_before_drill TEXT,
+    snapshot_after_drill TEXT,
+    snapshot_after_restart TEXT,
+    first_drill_result TEXT,
+    second_drill_result TEXT,
+    consistency_verified INTEGER NOT NULL DEFAULT 0,
+    restart_recovery_verified INTEGER NOT NULL DEFAULT 0,
+    type_check_passed INTEGER NOT NULL DEFAULT 0,
+    build_check_passed INTEGER NOT NULL DEFAULT 0,
+    service_version TEXT,
+    service_start_time TEXT,
+    logs_json TEXT NOT NULL DEFAULT '[]',
+    package_ready INTEGER NOT NULL DEFAULT 0,
+    package_path TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_acceptance_runs_status ON acceptance_runs(status);
+  CREATE INDEX IF NOT EXISTS idx_acceptance_runs_created ON acceptance_runs(created_at);
 `);
 
 function columnExists(table: string, column: string): boolean {

@@ -1,0 +1,17 @@
+{
+  "runId": "45417a2f-42d7-41ee-bf6a-ec69afa41433",
+  "runName": "验收演练-2026/6/15 15:15:23",
+  "createdAt": "2026-06-15T07:15:23.763Z",
+  "filterCriteria": null,
+  "reviewRecordCount": 0,
+  "interfaceCheckCount": 0,
+  "interfaceCheckPassed": 0,
+  "exportFileCount": 0,
+  "steps": [],
+  "summary": {
+    "typeCheck": false,
+    "buildCheck": false,
+    "consistency": false,
+    "restartRecovery": true
+  }
+}

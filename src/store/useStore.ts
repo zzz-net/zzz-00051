@@ -15,6 +15,10 @@ import type {
   CockpitRun,
   CockpitSummary,
   CockpitCheckpoint,
+  AcceptanceRun,
+  AcceptanceSummary,
+  AcceptancePackageInfo,
+  AcceptanceExportFile,
 } from "../../shared/types";
 
 const LS_BATCH_FILTERS = "dm_batch_filters";
@@ -97,6 +101,21 @@ interface AppState {
   fetchCockpitRuns: () => Promise<void>;
   fetchCockpitRunDetail: (runId: string) => Promise<void>;
   fetchCockpitCheckpoints: (runId: string) => Promise<void>;
+  acceptanceSummary: AcceptanceSummary | null;
+  acceptanceCurrentRun: AcceptanceRun | null;
+  acceptanceRuns: AcceptanceRun[];
+  acceptanceRunning: boolean;
+  acceptancePackageInfo: AcceptancePackageInfo | null;
+  acceptanceFiles: AcceptanceExportFile[];
+  fetchAcceptanceSummary: () => Promise<void>;
+  startAcceptanceDrill: (name?: string) => Promise<AcceptanceRun>;
+  resumeAcceptanceDrill: (runId: string) => Promise<AcceptanceRun>;
+  verifyRestartRecovery: (runId: string) => Promise<AcceptanceRun>;
+  fetchAcceptanceRuns: () => Promise<void>;
+  fetchAcceptanceRunDetail: (runId: string) => Promise<void>;
+  fetchAcceptancePackageInfo: (runId: string) => Promise<void>;
+  fetchAcceptanceFiles: (runId: string) => Promise<void>;
+  downloadAcceptanceFile: (runId: string, filename: string) => void;
   clearError: () => void;
 }
 
@@ -438,5 +457,122 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (e) {
       set({ error: (e as Error).message });
     }
+  },
+
+  acceptanceSummary: null,
+  acceptanceCurrentRun: null,
+  acceptanceRuns: [],
+  acceptanceRunning: false,
+  acceptancePackageInfo: null,
+  acceptanceFiles: [],
+
+  fetchAcceptanceSummary: async () => {
+    try {
+      const data = await apiCall<AcceptanceSummary>("/acceptance/summary");
+      set({ acceptanceSummary: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  startAcceptanceDrill: async (name?: string) => {
+    set({ acceptanceRunning: true, loading: true });
+    try {
+      const body: any = {};
+      if (name) body.name = name;
+      const data = await apiCall<AcceptanceRun>("/acceptance/run", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      set({ acceptanceCurrentRun: data });
+      await get().fetchAcceptanceSummary();
+      await get().fetchAcceptanceRuns();
+      return data;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      throw e;
+    } finally {
+      set({ acceptanceRunning: false, loading: false });
+    }
+  },
+
+  resumeAcceptanceDrill: async (runId: string) => {
+    set({ acceptanceRunning: true, loading: true });
+    try {
+      const data = await apiCall<AcceptanceRun>(`/acceptance/resume/${runId}`, {
+        method: "POST",
+      });
+      set({ acceptanceCurrentRun: data });
+      await get().fetchAcceptanceSummary();
+      await get().fetchAcceptanceRuns();
+      return data;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      throw e;
+    } finally {
+      set({ acceptanceRunning: false, loading: false });
+    }
+  },
+
+  verifyRestartRecovery: async (runId: string) => {
+    set({ acceptanceRunning: true, loading: true });
+    try {
+      const data = await apiCall<AcceptanceRun>(`/acceptance/restart-verify/${runId}`, {
+        method: "POST",
+      });
+      set({ acceptanceCurrentRun: data });
+      await get().fetchAcceptanceSummary();
+      await get().fetchAcceptanceRuns();
+      return data;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      throw e;
+    } finally {
+      set({ acceptanceRunning: false, loading: false });
+    }
+  },
+
+  fetchAcceptanceRuns: async () => {
+    try {
+      const data = await apiCall<AcceptanceRun[]>("/acceptance/runs");
+      set({ acceptanceRuns: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  fetchAcceptanceRunDetail: async (runId: string) => {
+    try {
+      const data = await apiCall<AcceptanceRun>(`/acceptance/runs/${runId}`);
+      set({ acceptanceCurrentRun: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  fetchAcceptancePackageInfo: async (runId: string) => {
+    try {
+      const data = await apiCall<AcceptancePackageInfo>(`/acceptance/runs/${runId}/package`);
+      set({ acceptancePackageInfo: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  fetchAcceptanceFiles: async (runId: string) => {
+    try {
+      const data = await apiCall<AcceptanceExportFile[]>(`/acceptance/runs/${runId}/files`);
+      set({ acceptanceFiles: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  downloadAcceptanceFile: (runId: string, filename: string) => {
+    const url = `${API_BASE}/acceptance/runs/${runId}/file/${encodeURIComponent(filename)}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
   },
 }));

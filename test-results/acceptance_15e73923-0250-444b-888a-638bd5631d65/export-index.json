@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-06-15T07:16:30.007Z",
+  "totalFiles": 6,
+  "totalSize": 792,
+  "files": [
+    {
+      "name": "manifest.json",
+      "type": "json",
+      "size": 369,
+      "recordCount": 1
+    },
+    {
+      "name": "filter-criteria.json",
+      "type": "json",
+      "size": 2,
+      "recordCount": 1
+    },
+    {
+      "name": "review-records.json",
+      "type": "json",
+      "size": 2,
+      "recordCount": 0
+    },
+    {
+      "name": "interface-checks.json",
+      "type": "json",
+      "size": 2,
+      "recordCount": 0
+    },
+    {
+      "name": "steps-timeline.json",
+      "type": "json",
+      "size": 2,
+      "recordCount": 0
+    },
+    {
+      "name": "run-summary.json",
+      "type": "json",
+      "size": 415,
+      "recordCount": 1
+    }
+  ]
+}

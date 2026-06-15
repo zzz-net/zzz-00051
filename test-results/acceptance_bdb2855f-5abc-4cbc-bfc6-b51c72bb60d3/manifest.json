@@ -1,0 +1,15 @@
+{
+  "packageVersion": "1.0",
+  "runId": "bdb2855f-5abc-4cbc-bfc6-b51c72bb60d3",
+  "runName": "验收演练-2026/6/15 15:01:33",
+  "createdAt": "2026-06-15T07:01:33.743Z",
+  "files": [
+    "manifest.json",
+    "filter-criteria.json",
+    "review-records.json",
+    "interface-checks.json",
+    "export-index.json",
+    "steps-timeline.json",
+    "run-summary.json"
+  ]
+}

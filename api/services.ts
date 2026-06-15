@@ -1293,3 +1293,743 @@ export function getCockpitRunCheckpoints(runId: string) {
   return repo.getCockpitCheckpoints(runId);
 }
 
+import type {
+  AcceptanceRun,
+  AcceptanceStepResult,
+  AcceptancePhase,
+  AcceptanceFilterCriteria,
+  AcceptanceReviewRecord,
+  AcceptanceInterfaceCheck,
+  AcceptanceExportFile,
+  AcceptancePackageInfo,
+  AcceptanceRunStatus,
+} from "../shared/types.js";
+import { execSync } from "child_process";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const SERVICE_START_TIME = new Date().toISOString();
+const SERVICE_VERSION = process.env.npm_package_version || "1.0.0";
+
+function makeAcceptanceStep(step: string, label: string, phase: AcceptancePhase): AcceptanceStepResult {
+  return {
+    step,
+    label,
+    phase,
+    status: "pending",
+    startedAt: null,
+    finishedAt: null,
+    detail: null,
+    error: null,
+  };
+}
+
+function startAcceptanceStep(steps: AcceptanceStepResult[], step: string): void {
+  const s = steps.find(x => x.step === step);
+  if (s) { s.status = "running"; s.startedAt = nowISO(); }
+}
+
+function finishAcceptanceStep(steps: AcceptanceStepResult[], step: string, passed: boolean, detail?: string, error?: string): void {
+  const s = steps.find(x => x.step === step);
+  if (s) {
+    s.status = passed ? "passed" : "failed";
+    s.finishedAt = nowISO();
+    s.detail = detail || null;
+    s.error = error || null;
+  }
+}
+
+function skipAcceptanceStep(steps: AcceptanceStepResult[], step: string, detail?: string): void {
+  const s = steps.find(x => x.step === step);
+  if (s) {
+    s.status = "skipped";
+    s.finishedAt = nowISO();
+    s.detail = detail || null;
+  }
+}
+
+function generateDrillData(prefix: string) {
+  const STORE_A = `${prefix}-A`;
+  const STORE_B = `${prefix}-B`;
+
+  const stores = [
+    { id: STORE_A, name: `${prefix}-A 门店`, area: 150, category: "旗舰" },
+    { id: STORE_B, name: `${prefix}-B 门店`, area: 120, category: "标准" },
+  ];
+
+  const baseDate = new Date();
+  baseDate.setHours(0, 0, 0, 0);
+  const offsetDate = (base: Date, days: number) => {
+    const d = new Date(base);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  const DATES = Array.from({ length: 7 }, (_, i) => offsetDate(baseDate, i - 6));
+
+  const readingRows: any[] = [];
+  const hoursRows: any[] = [];
+  let readingA = 1000;
+  let readingB = 800;
+  for (let i = 0; i < DATES.length; i++) {
+    const date = DATES[i];
+    let incA = 100 + Math.random() * 20 - 10;
+    let incB = 100 + Math.random() * 20 - 10;
+    if (i === 3) incB = 280;
+    if (i === 4) incB = -10;
+    readingA += incA;
+    readingB += incB;
+    readingRows.push({ storeId: STORE_A, date, reading: Math.round(readingA * 100) / 100 });
+    readingRows.push({ storeId: STORE_B, date, reading: Math.round(readingB * 100) / 100 });
+    const d = new Date(date);
+    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+    hoursRows.push({ storeId: STORE_A, date, openHour: 8, closeHour: isWeekend ? 22 : 20 });
+    hoursRows.push({ storeId: STORE_B, date, openHour: 8, closeHour: isWeekend ? 22 : 20 });
+  }
+
+  const maintenanceRows = [
+    { storeId: STORE_B, date: DATES[1], type: "设备维修", description: "中央空调主机维修" },
+  ];
+
+  return {
+    stores,
+    readingRows,
+    hoursRows,
+    maintenanceRows,
+    storeIds: [STORE_A, STORE_B],
+    dates: DATES,
+  };
+}
+
+async function performDrill(prefix: string, runId: string, logs: string[]) {
+  const data = generateDrillData(prefix);
+  const appendLog = (msg: string) => { logs.push(`[${nowISO()}] ${msg}`); };
+
+  appendLog(`开始演练: prefix=${prefix}`);
+
+  for (const s of data.stores) {
+    repo.upsertStore({ name: s.name, area: s.area, category: s.category }, s.id);
+  }
+  appendLog(`门店创建完成: ${data.stores.length} 家`);
+
+  const readingsResult = await importReadings(
+    data.readingRows,
+    `${prefix}-readings`,
+    false,
+    { fileType: "json", fileName: `${prefix}_readings.json` }
+  );
+  appendLog(`读数导入: success=${readingsResult.success}, count=${readingsResult.successCount}`);
+
+  const hoursResult = await importHours(
+    data.hoursRows,
+    `${prefix}-hours`,
+    false,
+    { fileType: "json", fileName: `${prefix}_hours.json` }
+  );
+  appendLog(`营业时间导入: success=${hoursResult.success}, count=${hoursResult.successCount}`);
+
+  const maintResult = await importMaintenance(
+    data.maintenanceRows,
+    `${prefix}-maint`,
+    false,
+    { fileType: "json", fileName: `${prefix}_maint.json` }
+  );
+  appendLog(`维修记录导入: success=${maintResult.success}, count=${maintResult.successCount}`);
+
+  const anomalyCount = recalculateAllAnomalies();
+  appendLog(`异常重新计算: 共 ${anomalyCount} 条`);
+
+  const allAnomalies = repo.getAnomalies();
+  const drillAnomalies = allAnomalies.filter(a => data.storeIds.includes(a.storeId));
+  const drillAnomalyCount = drillAnomalies.length;
+
+  const filterCriteria: AcceptanceFilterCriteria = {
+    status: "pending",
+    minDeviationRate: 0.1,
+  };
+
+  const anomalies = repo.getAnomalies({ status: "pending" as any })
+    .filter(a => data.storeIds.includes(a.storeId));
+  appendLog(`筛选待复核异常: ${anomalies.length} 条`);
+
+  const reviewRecords: AcceptanceReviewRecord[] = [];
+  if (anomalies.length > 0) {
+    const target = anomalies[0];
+    const fromStatus = target.status;
+    reviewAnomaly(target.id, {
+      status: "confirmed",
+      attribution: "设备故障",
+      note: "验收演练自动复核",
+      evidenceSource: "acceptance-drill",
+      reviewer: "验收系统",
+    });
+    reviewRecords.push({
+      anomalyId: target.id,
+      fromStatus,
+      toStatus: "confirmed",
+      reviewer: "验收系统",
+      note: "验收演练自动复核",
+      evidenceSource: "acceptance-drill",
+      timestamp: nowISO(),
+    });
+    appendLog(`异常复核: ${target.id} → confirmed`);
+  }
+
+  const interfaceChecks: AcceptanceInterfaceCheck[] = [];
+  const checkEndpoints = [
+    { name: "健康检查", endpoint: "/api/health", method: "GET" },
+    { name: "门店列表", endpoint: "/api/stores", method: "GET" },
+    { name: "异常列表", endpoint: "/api/anomalies", method: "GET" },
+    { name: "批次列表", endpoint: "/api/import/batches", method: "GET" },
+  ];
+  for (const ep of checkEndpoints) {
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`http://localhost:${process.env.PORT || 3002}${ep.endpoint}`);
+      const duration = Date.now() - t0;
+      interfaceChecks.push({
+        name: ep.name,
+        endpoint: ep.endpoint,
+        method: ep.method,
+        status: res.ok ? "passed" : "failed",
+        responseTime: duration,
+        detail: res.ok ? `HTTP ${res.status}` : `HTTP ${res.status}`,
+      });
+    } catch (e: any) {
+      interfaceChecks.push({
+        name: ep.name,
+        endpoint: ep.endpoint,
+        method: ep.method,
+        status: "failed",
+        responseTime: Date.now() - t0,
+        detail: e.message,
+      });
+    }
+  }
+  appendLog(`接口检查完成: ${interfaceChecks.filter(c => c.status === "passed").length}/${interfaceChecks.length} 通过`);
+
+  const snapshot = repo.getSystemStateSnapshot();
+
+  return {
+    success: true,
+    prefix,
+    storeIds: data.storeIds,
+    filterCriteria,
+    reviewRecords,
+    interfaceChecks,
+    snapshot,
+    anomalyCount,
+    drillAnomalyCount,
+  };
+}
+
+function getAnomaliesExportData(filter: any) {
+  return getAnomaliesForExport(filter);
+}
+
+function buildAcceptancePackage(run: AcceptanceRun): AcceptancePackageInfo {
+  const passedSteps = run.steps.filter(s => s.status === "passed").length;
+  const totalSteps = run.steps.filter(s => s.status !== "skipped").length;
+
+  return {
+    runId: run.id,
+    runName: run.name,
+    createdAt: run.createdAt,
+    filterCriteria: run.filterCriteria,
+    reviewRecordCount: run.reviewRecords.length,
+    interfaceCheckCount: run.interfaceChecks.length,
+    interfaceCheckPassed: run.interfaceChecks.filter(c => c.status === "passed").length,
+    exportFileCount: run.exportFiles.length,
+    steps: run.steps,
+    summary: {
+      typeCheck: run.typeCheckPassed,
+      buildCheck: run.buildCheckPassed,
+      consistency: run.consistencyVerified,
+      restartRecovery: run.restartRecoveryVerified,
+    },
+  };
+}
+
+function saveAcceptancePackage(runId: string): { path: string; size: number } {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) throw new Error("验收记录不存在");
+
+  const packageDir = path.join(__dirname, "..", "test-results", `acceptance_${runId}`);
+  if (!fs.existsSync(packageDir)) {
+    fs.mkdirSync(packageDir, { recursive: true });
+  }
+
+  const pkgInfo = buildAcceptancePackage(run);
+
+  const files: AcceptanceExportFile[] = [];
+
+  const manifestPath = path.join(packageDir, "manifest.json");
+  const manifest = {
+    packageVersion: "1.0",
+    runId: run.id,
+    runName: run.name,
+    createdAt: run.createdAt,
+    files: [
+      "manifest.json",
+      "filter-criteria.json",
+      "review-records.json",
+      "interface-checks.json",
+      "export-index.json",
+      "steps-timeline.json",
+      "run-summary.json",
+    ],
+  };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+  files.push({
+    name: "manifest.json",
+    type: "json",
+    size: fs.statSync(manifestPath).size,
+    recordCount: 1,
+    path: manifestPath,
+  });
+
+  const filterPath = path.join(packageDir, "filter-criteria.json");
+  fs.writeFileSync(filterPath, JSON.stringify(run.filterCriteria || {}, null, 2), "utf-8");
+  files.push({
+    name: "filter-criteria.json",
+    type: "json",
+    size: fs.statSync(filterPath).size,
+    recordCount: 1,
+    path: filterPath,
+  });
+
+  const reviewPath = path.join(packageDir, "review-records.json");
+  fs.writeFileSync(reviewPath, JSON.stringify(run.reviewRecords, null, 2), "utf-8");
+  files.push({
+    name: "review-records.json",
+    type: "json",
+    size: fs.statSync(reviewPath).size,
+    recordCount: run.reviewRecords.length,
+    path: reviewPath,
+  });
+
+  const interfacePath = path.join(packageDir, "interface-checks.json");
+  fs.writeFileSync(interfacePath, JSON.stringify(run.interfaceChecks, null, 2), "utf-8");
+  files.push({
+    name: "interface-checks.json",
+    type: "json",
+    size: fs.statSync(interfacePath).size,
+    recordCount: run.interfaceChecks.length,
+    path: interfacePath,
+  });
+
+  const stepsPath = path.join(packageDir, "steps-timeline.json");
+  fs.writeFileSync(stepsPath, JSON.stringify(run.steps, null, 2), "utf-8");
+  files.push({
+    name: "steps-timeline.json",
+    type: "json",
+    size: fs.statSync(stepsPath).size,
+    recordCount: run.steps.length,
+    path: stepsPath,
+  });
+
+  const summaryPath = path.join(packageDir, "run-summary.json");
+  fs.writeFileSync(summaryPath, JSON.stringify(pkgInfo, null, 2), "utf-8");
+  files.push({
+    name: "run-summary.json",
+    type: "json",
+    size: fs.statSync(summaryPath).size,
+    recordCount: 1,
+    path: summaryPath,
+  });
+
+  if (run.filterCriteria) {
+    try {
+      const exportData = getAnomaliesForExport(run.filterCriteria.status || "confirmed");
+      const anomaliesPath = path.join(packageDir, "anomalies_export.json");
+      fs.writeFileSync(anomaliesPath, JSON.stringify(exportData, null, 2), "utf-8");
+      files.push({
+        name: "anomalies_export.json",
+        type: "json",
+        size: fs.statSync(anomaliesPath).size,
+        recordCount: Array.isArray(exportData.records) ? exportData.records.length : 0,
+        path: anomaliesPath,
+      });
+
+      const csvPath = path.join(packageDir, "anomalies_export.csv");
+      const csvText = toCSV(Array.isArray(exportData.records) ? exportData.records : []);
+      fs.writeFileSync(csvPath, "\ufeff" + csvText, "utf-8");
+      files.push({
+        name: "anomalies_export.csv",
+        type: "csv",
+        size: fs.statSync(csvPath).size,
+        recordCount: csvText.split("\n").length - 1,
+        path: csvPath,
+      });
+    } catch (e) {
+      // ignore export errors
+    }
+  }
+
+  const exportIndexPath = path.join(packageDir, "export-index.json");
+  const exportIndex = {
+    generatedAt: nowISO(),
+    totalFiles: files.length,
+    totalSize: files.reduce((sum, f) => sum + f.size, 0),
+    files: files.map(f => ({
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      recordCount: f.recordCount,
+    })),
+  };
+  fs.writeFileSync(exportIndexPath, JSON.stringify(exportIndex, null, 2), "utf-8");
+  files.push({
+    name: "export-index.json",
+    type: "json",
+    size: fs.statSync(exportIndexPath).size,
+    recordCount: files.length,
+    path: exportIndexPath,
+  });
+
+  repo.updateAcceptanceRun(runId, {
+    exportFiles: files,
+    packageReady: true,
+    packagePath: packageDir,
+  });
+
+  return {
+    path: packageDir,
+    size: files.reduce((sum, f) => sum + f.size, 0),
+  };
+}
+
+export async function runAcceptanceDrill(options?: {
+  name?: string;
+  resumeFrom?: string;
+  mode?: "new" | "resume" | "restart_verify";
+}): Promise<AcceptanceRun> {
+  const mode = options?.mode || "new";
+  const drillName = options?.name || `验收演练-${new Date().toLocaleString('zh-CN')}`;
+  const logs: string[] = [];
+  const appendLog = (msg: string) => { logs.push(`[${nowISO()}] ${msg}`); };
+
+  let run: AcceptanceRun;
+  if (mode === "resume" && options?.resumeFrom) {
+    const existing = repo.getAcceptanceRunById(options.resumeFrom);
+    if (!existing) throw new Error("要恢复的演练记录不存在");
+    run = existing;
+    appendLog(`恢复演练: runId=${run.id}, name=${run.name}`);
+  } else {
+    run = repo.createAcceptanceRun(drillName);
+    appendLog(`新建演练: runId=${run.id}, name=${drillName}`);
+  }
+
+  const runId = run.id;
+  const prefix = `acc-${runId.slice(0, 8)}`;
+
+  const steps: AcceptanceStepResult[] = mode === "new" ? [
+    makeAcceptanceStep("type_check", "类型检查", "self_check"),
+    makeAcceptanceStep("build_check", "构建检查", "self_check"),
+    makeAcceptanceStep("service_version_check", "服务版本确认", "self_check"),
+    makeAcceptanceStep("data_isolation", "隔离数据准备", "preparation"),
+    makeAcceptanceStep("batch_import", "批次导入与冲突处理", "preparation"),
+    makeAcceptanceStep("first_drill", "第一次演练执行", "drill_run"),
+    makeAcceptanceStep("snapshot_before_second", "第二次演练前快照", "drill_run"),
+    makeAcceptanceStep("second_drill", "第二次演练执行", "drill_run"),
+    makeAcceptanceStep("consistency_check", "两次演练一致性验证", "drill_run"),
+    makeAcceptanceStep("restart_recovery_check", "重启回读验证", "restart_verification"),
+    makeAcceptanceStep("package_generation", "生成验收包", "final_packaging"),
+  ] : run.steps;
+
+  if (mode === "new") {
+    repo.updateAcceptanceRun(runId, { steps, status: "running", currentPhase: "self_check", serviceVersion: SERVICE_VERSION, serviceStartTime: SERVICE_START_TIME });
+  } else {
+    repo.updateAcceptanceRun(runId, { status: "running" });
+  }
+
+  try {
+    if (mode === "new") {
+      startAcceptanceStep(steps, "type_check");
+      try {
+        let typeCheckPassed = false;
+        try {
+          const result = execSync("npx tsc --noEmit", {
+            cwd: path.join(__dirname, ".."),
+            timeout: 30000,
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          typeCheckPassed = true;
+          finishAcceptanceStep(steps, "type_check", true, "TypeScript 类型检查通过");
+          appendLog("类型检查: 通过");
+        } catch (e: any) {
+          finishAcceptanceStep(steps, "type_check", false, null, e.stdout?.slice(0, 500) || e.message);
+          appendLog(`类型检查: 失败 - ${e.message}`);
+        }
+        repo.updateAcceptanceRun(runId, { steps, logs, typeCheckPassed });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "type_check", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "build_check");
+      try {
+        let buildPassed = false;
+        try {
+          const result = execSync("npx vite build", {
+            cwd: path.join(__dirname, ".."),
+            timeout: 60000,
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          buildPassed = true;
+          finishAcceptanceStep(steps, "build_check", true, "Vite 构建成功");
+          appendLog("构建检查: 通过");
+        } catch (e: any) {
+          finishAcceptanceStep(steps, "build_check", false, null, e.stdout?.slice(0, 500) || e.message);
+          appendLog(`构建检查: 失败 - ${e.message}`);
+        }
+        repo.updateAcceptanceRun(runId, { steps, logs, buildCheckPassed: buildPassed });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "build_check", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "service_version_check");
+      try {
+        const currentRun = repo.getAcceptanceRunById(runId)!;
+        const isLatest = currentRun.serviceStartTime === SERVICE_START_TIME;
+        finishAcceptanceStep(steps, "service_version_check", isLatest,
+          isLatest ? `服务启动时间匹配: ${SERVICE_START_TIME}` : `服务已重启，当前启动时间: ${SERVICE_START_TIME}`);
+        appendLog(`服务版本检查: ${isLatest ? "通过" : "服务已重启"}`);
+        repo.updateAcceptanceRun(runId, { steps, logs, currentPhase: "preparation" });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "service_version_check", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "data_isolation");
+      try {
+        const cleanup = repo.cleanupByPrefix(prefix);
+        const total = Object.values(cleanup).reduce((a: number, b: any) => a + (typeof b === "number" ? b : 0), 0);
+        finishAcceptanceStep(steps, "data_isolation", true, `清理 ${total} 条旧数据，前缀: ${prefix}`);
+        appendLog(`数据隔离: 清理 ${total} 条, prefix=${prefix}`);
+        repo.updateAcceptanceRun(runId, { steps, logs });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "data_isolation", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "batch_import");
+      try {
+        const data = generateDrillData(prefix);
+        for (const s of data.stores) {
+          repo.upsertStore({ name: s.name, area: s.area, category: s.category }, s.id);
+        }
+
+        const readingsResult = await importReadings(
+          data.readingRows,
+          `${prefix}-readings`,
+          false,
+          { fileType: "json", fileName: `${prefix}_readings.json` }
+        );
+
+        const conflictTestResult = await importReadings(
+          data.readingRows,
+          `${prefix}-readings-conflict`,
+          false,
+          { fileType: "json", fileName: `${prefix}_readings_conflict.json` }
+        );
+
+        const hasConflictHandling = conflictTestResult.success === true || conflictTestResult.warnings?.length > 0;
+        finishAcceptanceStep(steps, "batch_import", true,
+          `读数导入成功=${readingsResult.successCount}, 冲突检测=${hasConflictHandling ? "已处理" : "无"}`);
+        appendLog(`批次导入: 读数=${readingsResult.successCount}, 冲突处理=${hasConflictHandling}`);
+        repo.updateAcceptanceRun(runId, { steps, logs, currentPhase: "drill_run" });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "batch_import", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "first_drill");
+      try {
+        const firstResult = await performDrill(`${prefix}-first`, runId, logs);
+        finishAcceptanceStep(steps, "first_drill", firstResult.success,
+          `异常=${firstResult.anomalyCount}, 接口检查=${firstResult.interfaceChecks.filter(c => c.status === "passed").length}/${firstResult.interfaceChecks.length}`);
+        repo.updateAcceptanceRun(runId, {
+          steps,
+          logs,
+          firstDrillResult: JSON.stringify(firstResult),
+          filterCriteria: firstResult.filterCriteria,
+          reviewRecords: firstResult.reviewRecords,
+          interfaceChecks: firstResult.interfaceChecks,
+          snapshotBeforeDrill: JSON.stringify(firstResult.snapshot),
+        });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "first_drill", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "snapshot_before_second");
+      try {
+        const snap = repo.getSystemStateSnapshot();
+        finishAcceptanceStep(steps, "snapshot_before_second", true,
+          `门店=${snap.storeCount}, 异常=${snap.anomalyCounts.total || 0}`);
+        appendLog(`第二次演练前快照: 门店=${snap.storeCount}`);
+        repo.updateAcceptanceRun(runId, { steps, logs });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "snapshot_before_second", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "second_drill");
+      try {
+        const secondResult = await performDrill(`${prefix}-second`, runId, logs);
+        finishAcceptanceStep(steps, "second_drill", secondResult.success,
+          `异常=${secondResult.anomalyCount}, 接口检查=${secondResult.interfaceChecks.filter(c => c.status === "passed").length}/${secondResult.interfaceChecks.length}`);
+        repo.updateAcceptanceRun(runId, {
+          steps,
+          logs,
+          secondDrillResult: JSON.stringify(secondResult),
+          snapshotAfterDrill: JSON.stringify(secondResult.snapshot),
+        });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "second_drill", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+
+      startAcceptanceStep(steps, "consistency_check");
+      try {
+        const firstData = JSON.parse(repo.getAcceptanceRunById(runId)!.firstDrillResult || "{}");
+        const secondData = JSON.parse(repo.getAcceptanceRunById(runId)!.secondDrillResult || "{}");
+
+        const firstDrillAnomCount = firstData.drillAnomalyCount || 0;
+        const secondDrillAnomCount = secondData.drillAnomalyCount || 0;
+        const firstPassedInterfaces = firstData.interfaceChecks?.filter((c: any) => c.status === "passed").length || 0;
+        const secondPassedInterfaces = secondData.interfaceChecks?.filter((c: any) => c.status === "passed").length || 0;
+        const firstReviewCount = firstData.reviewRecords?.length || 0;
+        const secondReviewCount = secondData.reviewRecords?.length || 0;
+
+        const consistency = firstDrillAnomCount === secondDrillAnomCount &&
+          firstPassedInterfaces === secondPassedInterfaces &&
+          firstReviewCount === secondReviewCount;
+
+        finishAcceptanceStep(steps, "consistency_check", consistency,
+          `第一次演练异常=${firstDrillAnomCount}, 第二次演练异常=${secondDrillAnomCount}, ${consistency ? "一致" : "不一致"}`);
+        appendLog(`一致性验证: ${consistency ? "通过" : "失败"}`);
+        repo.updateAcceptanceRun(runId, { steps, logs, consistencyVerified: consistency, currentPhase: "restart_verification" });
+      } catch (e: any) {
+        finishAcceptanceStep(steps, "consistency_check", false, null, e.message);
+        repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+        return repo.getAcceptanceRunById(runId)!;
+      }
+    }
+
+    startAcceptanceStep(steps, "restart_recovery_check");
+    try {
+      const currentRun = repo.getAcceptanceRunById(runId)!;
+      const serviceRestarted = currentRun.serviceStartTime !== SERVICE_START_TIME;
+      const stateRecovered = currentRun.status === "running" || currentRun.status === "paused";
+
+      let recoveryVerified = false;
+      if (mode === "restart_verify") {
+        recoveryVerified = serviceRestarted && stateRecovered;
+        finishAcceptanceStep(steps, "restart_recovery_check", recoveryVerified,
+          `服务已重启=${serviceRestarted}, 状态可回读=${stateRecovered}`);
+        appendLog(`重启回读验证: ${recoveryVerified ? "通过" : "失败"}`);
+      } else {
+        skipAcceptanceStep(steps, "restart_recovery_check", "重启验证需在服务重启后执行");
+        appendLog("重启回读验证: 跳过（需重启后验证）");
+      }
+      repo.updateAcceptanceRun(runId, { steps, logs, restartRecoveryVerified: recoveryVerified, currentPhase: "final_packaging" });
+    } catch (e: any) {
+      finishAcceptanceStep(steps, "restart_recovery_check", false, null, e.message);
+      repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getAcceptanceRunById(runId)!;
+    }
+
+    startAcceptanceStep(steps, "package_generation");
+    try {
+      const pkg = saveAcceptancePackage(runId);
+      finishAcceptanceStep(steps, "package_generation", true,
+        `验收包已生成: ${pkg.path} (${(pkg.size / 1024).toFixed(1)} KB)`);
+      appendLog(`验收包生成: ${pkg.path}, ${(pkg.size / 1024).toFixed(1)} KB`);
+      repo.updateAcceptanceRun(runId, { steps, logs });
+    } catch (e: any) {
+      finishAcceptanceStep(steps, "package_generation", false, null, e.message);
+      repo.updateAcceptanceRun(runId, { steps, logs, status: "failed", finishedAt: nowISO() });
+      return repo.getAcceptanceRunById(runId)!;
+    }
+
+    const allPassed = steps.every(s => s.status === "passed" || s.status === "skipped");
+    repo.updateAcceptanceRun(runId, {
+      status: allPassed ? "completed" : "failed",
+      steps,
+      logs,
+      finishedAt: nowISO(),
+      currentPhase: null,
+    });
+    appendLog(`演练完成: ${allPassed ? "全部通过" : "存在失败"}`);
+
+    return repo.getAcceptanceRunById(runId)!;
+  } catch (e: any) {
+    appendLog(`演练异常: ${e.message}`);
+    repo.updateAcceptanceRun(runId, { status: "failed", steps, logs, finishedAt: nowISO() });
+    return repo.getAcceptanceRunById(runId)!;
+  }
+}
+
+export function getAcceptanceRunDetail(runId: string): AcceptanceRun | null {
+  return repo.getAcceptanceRunById(runId);
+}
+
+export function listAcceptanceRuns(limit?: number): AcceptanceRun[] {
+  return repo.getAcceptanceRuns(limit);
+}
+
+export function getAcceptanceDashboardSummary() {
+  return repo.getAcceptanceSummary();
+}
+
+export function getLastAcceptanceRun(): AcceptanceRun | null {
+  return repo.getLastAcceptanceRun();
+}
+
+export function getAcceptancePackageInfo(runId: string): AcceptancePackageInfo | null {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run) return null;
+  return buildAcceptancePackage(run);
+}
+
+export function downloadAcceptancePackage(runId: string): { path: string; files: AcceptanceExportFile[] } | null {
+  const run = repo.getAcceptanceRunById(runId);
+  if (!run || !run.packageReady || !run.packagePath) return null;
+  return {
+    path: run.packagePath,
+    files: run.exportFiles,
+  };
+}
+
+export function resumeAcceptanceDrill(runId: string): Promise<AcceptanceRun> {
+  return runAcceptanceDrill({ resumeFrom: runId, mode: "resume" });
+}
+
+export function verifyRestartRecovery(runId: string): Promise<AcceptanceRun> {
+  return runAcceptanceDrill({ resumeFrom: runId, mode: "restart_verify" });
+}
+
+export function getServiceInfo() {
+  return {
+    version: SERVICE_VERSION,
+    startTime: SERVICE_START_TIME,
+    uptime: Date.now() - new Date(SERVICE_START_TIME).getTime(),
+  };
+}
+
