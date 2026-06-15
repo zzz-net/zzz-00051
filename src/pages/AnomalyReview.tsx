@@ -54,8 +54,9 @@ const STATUS_FILTERS: { value: AnomalyStatus | "all"; label: string }[] = [
 const ATTRIBUTION_OPTIONS = ["读数倒退", "设备故障", "维修干扰", "季节波动", "其他"];
 
 function AnomalyFilterBar() {
-  const { anomalyFilters, setAnomalyFilters, stores, fetchAnomalies } = useStore();
+  const { anomalyFilters, setAnomalyFilters, clearAnomalyFilters, stores, fetchAnomalies } = useStore();
   const [showFilters, setShowFilters] = useState(false);
+  const hasFilters = Object.keys(anomalyFilters).length > 0;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
@@ -125,24 +126,46 @@ function AnomalyFilterBar() {
       </div>
 
       {showFilters && (
-        <div className="mt-4 pt-4 border-t border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-slate-400 mb-1.5">开始日期</label>
-            <input
-              type="date"
-              value={anomalyFilters.startDate || ""}
-              onChange={(e) => setAnomalyFilters({ startDate: e.target.value || undefined })}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-indigo-500"
-            />
+        <div className="mt-4 pt-4 border-t border-slate-800">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1.5">开始日期</label>
+              <input
+                type="date"
+                value={anomalyFilters.startDate || ""}
+                onChange={(e) => setAnomalyFilters({ startDate: e.target.value || undefined })}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1.5">结束日期</label>
+              <input
+                type="date"
+                value={anomalyFilters.endDate || ""}
+                onChange={(e) => setAnomalyFilters({ endDate: e.target.value || undefined })}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-1.5">结束日期</label>
-            <input
-              type="date"
-              value={anomalyFilters.endDate || ""}
-              onChange={(e) => setAnomalyFilters({ endDate: e.target.value || undefined })}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-indigo-500"
-            />
+          <div className="flex items-center gap-3 mt-4 pt-3 border-t border-slate-800/50">
+            {hasFilters && (
+              <button
+                onClick={() => {
+                  clearAnomalyFilters();
+                  fetchAnomalies();
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 bg-red-500/10 rounded transition-colors"
+              >
+                <X size={12} /> 清除所有筛选
+              </button>
+            )}
+            <button
+              onClick={() => fetchAnomalies()}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 rounded transition-colors"
+            >
+              <RefreshCw size={12} /> 应用筛选
+            </button>
+            <span className="ml-auto text-xs text-slate-500">筛选条件已自动保存，重启后仍保留</span>
           </div>
         </div>
       )}

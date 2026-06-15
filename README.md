@@ -1,57 +1,669 @@
-# React + TypeScript + Vite
+# 门店能耗异常复盘看板
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+面向连锁门店运营与能源管理团队的工具型 Web 应用。通过导入电表日读数、营业时长和维修记录，结合本地可配置阈值自动识别异常能耗，支持异常归因、复核状态流转、趋势对比和证据留存。
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 目录
 
-## Expanding the ESLint configuration
+- [1. 技术栈](#1-技术栈)
+- [2. 依赖准备](#2-依赖准备)
+- [3. 启动命令](#3-启动命令)
+- [4. 界面导航与菜单](#4-界面导航与菜单)
+- [5. 完整操作流程](#5-完整操作流程)
+  - [5.1 数据导入（电表读数/营业时长/维修记录）](#51-数据导入电表读数营业时长维修记录)
+  - [5.2 批次导入失败后的修正与重试](#52-批次导入失败后的修正与重试)
+  - [5.3 阈值配置](#53-阈值配置)
+  - [5.4 异常筛选与复核](#54-异常筛选与复核)
+  - [5.5 重启后状态保留说明](#55-重启后状态保留说明)
+  - [5.6 CSV/JSON 导出](#56-csvjson-导出)
+- [6. 数据格式规范](#6-数据格式规范)
+- [7. 最小可复跑样例](#7-最小可复跑样例)
+- [8. 常见异常提示](#8-常见异常提示)
+- [9. 文档与实现一致性验证](#9-文档与实现一致性验证)
+- [10. 数据持久化](#10-数据持久化)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+## 1. 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 前端 | React 18 + TypeScript + Vite + TailwindCSS 3 |
+| 状态管理 | Zustand |
+| 图表 | Recharts |
+| 后端 | Express 4 + TypeScript (ESM) |
+| 数据库 | SQLite (better-sqlite3) |
+| 文件解析 | PapaParse (CSV) |
+| 日期处理 | date-fns |
+| 图标 | lucide-react |
+
+---
+
+## 2. 依赖准备
+
+### 2.1 环境要求
+
+- Node.js >= 18.0.0
+- npm >= 9.0.0
+- 操作系统：Windows / macOS / Linux
+
+### 2.2 安装依赖
+
+```bash
+# 进入项目根目录
+cd d:\workSpace\AI__SPACE\zzz-00051
+
+# 安装所有依赖
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+安装完成后验证：
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+# 验证依赖是否完整
+npm ls --depth=0
+```
 
-export default tseslint.config({
-  extends: [
-    // other configs...
-    // Enable lint rules for React
-    reactX.configs['recommended-typescript'],
-    // Enable lint rules for React DOM
-    reactDom.configs.recommended,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+---
+
+## 3. 启动命令
+
+### 3.1 一键启动（推荐）
+
+同时启动前端开发服务器和后端 API 服务器：
+
+```bash
+npm run dev
+```
+
+启动后：
+- 前端访问地址：**http://localhost:5173**
+- 后端 API 地址：**http://localhost:3002/api**
+- 前端 API 请求会自动代理到后端（Vite 代理配置）
+
+### 3.2 分别启动
+
+如需单独调试某一端：
+
+```bash
+# 仅启动前端（Vite，端口 5173）
+npm run client:dev
+
+# 仅启动后端（nodemon + tsx，端口 3002）
+npm run server:dev
+```
+
+### 3.3 其他命令
+
+```bash
+# 类型检查
+npm run check
+
+# 代码检查
+npm run lint
+
+# 生产构建
+npm run build
+
+# 预览生产构建
+npm run preview
+```
+
+### 3.4 端口说明
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| 前端 Vite | 5173 | 热更新开发服务器 |
+| 后端 Express | 3002 | API 服务器，可通过 `PORT` 环境变量修改 |
+| 代理规则 | /api → http://localhost:3002 | 前端自动代理，无需跨域配置 |
+
+---
+
+## 4. 界面导航与菜单
+
+### 4.1 侧边栏菜单（实际实现）
+
+| 菜单项 | 路由路径 | 对应文件 |
+|--------|----------|----------|
+| **总览看板** | `/` | [Dashboard.tsx](file:///d:/workSpace/AI__SPACE/zzz-00051/src/pages/Dashboard.tsx) |
+| **数据管理** | `/data` | [DataManagement.tsx](file:///d:/workSpace/AI__SPACE/zzz-00051/src/pages/DataManagement.tsx) |
+| **异常复盘** | `/anomaly` | [AnomalyReview.tsx](file:///d:/workSpace/AI__SPACE/zzz-00051/src/pages/AnomalyReview.tsx) |
+
+### 4.2 页面内模块（实际实现）
+
+**数据管理页面** (`/data`)：
+- **批次数据导入**：支持 CSV/JSON 格式上传，按类型切换（电表读数/营业时长/维修记录）
+- **导入批次历史**：所有导入记录，支持筛选、展开详情、导出、重试
+- **阈值配置**：全局默认阈值 + 门店独立阈值
+
+**异常复盘页面** (`/anomaly`)：
+- **异常记录列表**：表格展示，支持按状态/门店/日期筛选
+- **趋势对比**：门店能耗趋势图，异常点标注，维修区间标记
+
+### 4.3 状态标签（实际实现）
+
+| 状态值 | 界面显示 | 说明 |
+|--------|----------|------|
+| `pending` | 待复核 | 新检测出的异常，等待人工处理 |
+| `confirmed` | 已确认 | 确认为真实异常 |
+| `false_positive` | 误报 | 标记为误报，非真实异常 |
+| `closed` | 已关闭 | 异常已处理完成 |
+
+### 4.4 归因标签（实际实现）
+
+- 读数倒退
+- 设备故障
+- 维修干扰
+- 季节波动
+- 其他
+
+---
+
+## 5. 完整操作流程
+
+### 5.1 数据导入（电表读数/营业时长/维修记录）
+
+#### 操作步骤
+
+1. 启动应用后，点击左侧菜单 **「数据管理」**
+2. 在 **「批次数据导入」** 区域，选择导入类型：
+   - **电表读数**：必填字段 `storeId, date, reading`
+   - **营业时长**：必填字段 `storeId, date, openHour, closeHour`
+   - **维修记录**：必填字段 `storeId, date, type, description`
+3. 拖拽文件到上传区域，或点击上传区域选择文件
+4. 系统自动解析并预览前 5 条数据，同时进行数据校验
+5. 校验通过后，点击 **「确认导入」**
+6. 导入成功后，系统自动触发异常重新计算
+
+#### 预期结果
+
+- 弹窗提示：`导入成功，共 X 条记录，成功 Y 条，失败 Z 条，生成 N 条异常`
+- 批次自动记录到 **「导入批次历史」** 列表
+- 异常复盘页面自动更新异常列表
+
+#### 导入校验规则
+
+| 校验项 | 规则 |
+|--------|------|
+| 必填字段 | 所有必填字段不能为空、null、undefined、空字符串 |
+| 日期格式 | 必须为 `YYYY-MM-DD` 格式 |
+| 数值类型 | `reading`, `openHour`, `closeHour` 必须为有效数字 |
+| 读数范围 | `reading` 不能为负数（电表读数为累计值） |
+| 营业时长 | `closeHour` 必须大于 `openHour` |
+| 批次冲突 | 同一 `batchId` 不能重复导入 |
+| 数据冲突 | 同一门店同一日期已存在的数据会被忽略（提示避免覆盖历史） |
+
+---
+
+### 5.2 批次导入失败后的修正与重试
+
+#### 场景说明
+
+导入时可能出现部分或全部记录失败，例如：
+- 字段缺失
+- 日期格式错误
+- 读数为负数
+- 营业时长非法
+
+#### 修正操作顺序
+
+1. 在 **「导入批次历史」** 中找到状态为 **「失败」** 或 **「部分成功」** 的批次
+2. 点击批次左侧的展开箭头 `▶`，查看详细错误信息
+3. 确认每条记录的具体错误原因
+4. 点击批次右侧的 **「重试」** 按钮（🔄 图标）
+5. 在弹出的 **「重试导入」** 对话框中：
+   - 系统自动加载原始内容
+   - **新批次 ID** 已自动生成（避免与父批次冲突）
+   - 直接在文本框中修正数据错误
+   - 点击 **「确认重试（生成新批次）」**
+6. 重试成功后，新批次会与原失败批次建立关联
+
+#### 父子批次关系
+
+- 失败批次称为 **「父批次」**
+- 重试生成的新批次称为 **「子批次」**
+- 在批次详情中可以看到：
+  - 子批次显示「父批次」链接
+  - 父批次显示「重试/子批次」列表
+- 可通过筛选器按状态筛选失败批次进行批量处理
+
+---
+
+### 5.3 阈值配置
+
+#### 操作步骤
+
+1. 进入 **「数据管理」** 页面，滚动到 **「阈值配置」** 区域
+2. **全局默认阈值**（所有未单独配置的门店使用）：
+   - **日能耗上限 (kWh)**：单日能耗预期最大值，默认 `150`
+   - **波动阈值 (%)**：超出预期能耗的百分比，默认 `30`
+   - **营业时长修正系数**：时长对能耗的修正系数，默认 `1.0`
+3. 点击 **「保存配置」**
+4. 系统自动对所有门店重新计算异常
+
+#### 异常检测算法
+
+```
+日能耗 = 当日读数 - 前日读数
+若日能耗 < 0 → 标记为"读数倒退"异常
+
+预期能耗 = 日能耗上限 × (实际营业时长 / 标准时长12小时) × 修正系数
+偏差率 = (日能耗 - 预期能耗) / 预期能耗 × 100%
+若偏差率 > 波动阈值 → 标记为异常
+
+若当日有维修记录 → 归因标签默认为"维修干扰"
+```
+
+#### 实时校验反馈
+
+- **错误**：日能耗上限 ≤ 0、波动阈值 < 0、修正系数 ≤ 0
+- **警告**：波动阈值 > 200%（可能漏报）、修正系数 > 3（影响准确性）
+
+---
+
+### 5.4 异常筛选与复核
+
+#### 筛选条件
+
+1. 进入 **「异常复盘」** 页面
+2. 顶部筛选栏支持：
+   - **状态快速筛选**：全部 / 待复核 / 已确认 / 误报 / 已关闭
+   - **门店筛选**：下拉选择具体门店
+   - **高级筛选**（点击「筛选」按钮展开）：
+     - 开始日期
+     - 结束日期
+3. 点击 **「应用筛选」** 生效
+
+#### 复核操作
+
+1. 在异常列表中找到状态为 **「待复核」** 的记录
+2. 点击右侧 **「复核」** 按钮
+3. 在弹出的复核对话框中：
+   - 选择复核结果：**「确认异常」** 或 **「标记误报」**
+   - 选择归因标签（可选）
+   - 填写 **复核备注**（必填）
+   - 填写 **证据来源**（必填，如：现场照片/img_001.jpg）
+   - 复核人自动填充为当前登录用户
+4. 点击 **「确认提交」**
+
+#### 复核历史
+
+1. 点击异常记录行任意位置展开详情
+2. 可查看完整复核历史，包括：
+   - 状态变更记录
+   - 备注内容
+   - 证据来源
+   - 复核人
+   - 复核时间
+
+---
+
+### 5.5 重启后状态保留说明
+
+#### 完全保留（持久化到数据库）
+
+以下数据重启应用后 **完全保留**：
+
+| 数据类型 | 存储位置 | 说明 |
+|----------|----------|------|
+| 门店信息 | SQLite | `stores` 表 |
+| 电表读数 | SQLite | `meter_readings` 表 |
+| 营业时长 | SQLite | `business_hours` 表 |
+| 维修记录 | SQLite | `maintenance_records` 表 |
+| 阈值配置 | SQLite | `threshold_config` 表 |
+| 异常记录 | SQLite | `anomalies` 表 |
+| 复核日志 | SQLite | `review_logs` 表 |
+| 导入批次 | SQLite | `import_batches` 表 |
+| 批次明细 | SQLite | `import_batch_records` 表 |
+
+> **重要**：重新计算异常时，已复核（已确认/误报/已关闭）的异常记录及其备注、证据、复核人信息 **不会被修改或删除**，仅待复核状态的异常会被清理并按新阈值重新判定。
+
+#### 保留（持久化到浏览器 localStorage）
+
+以下筛选条件重启浏览器后 **仍然保留**：
+
+| 筛选条件 | localStorage Key | 说明 |
+|----------|------------------|------|
+| 批次筛选 | `dm_batch_filters` | 类型、状态、日期范围 |
+| 最近查看批次 | `dm_recent_batches` | 最近 5 个查看过的批次 ID |
+| 异常筛选 | `dm_anomaly_filters` | 状态、门店、日期范围 |
+
+#### 验证方式
+
+1. 设置好筛选条件后
+2. 刷新浏览器页面（F5）
+3. 重新进入对应页面
+4. 确认筛选条件仍保持设置前的状态
+
+---
+
+### 5.6 CSV/JSON 导出
+
+#### 5.6.1 异常数据导出
+
+1. 进入 **「异常复盘」** 页面
+2. 设置好筛选条件（可选）
+3. 点击右上角 **「导出数据」** 下拉按钮
+4. 选择导出格式：
+   - **「导出为 CSV」**：适合用 Excel 打开分析
+   - **「导出为 JSON」**：适合程序处理或存档
+
+#### 导出内容（完整证据链）
+
+导出的每条异常记录包含以下字段：
+
+| 分类 | 字段 | 说明 |
+|------|------|------|
+| 基础信息 | `id`, `storeName`, `storeId`, `date` | 异常标识与归属 |
+| 源数据 | `readingPrev`, `readingCurr`, `dailyConsumption` | 前日读数、当日读数、日能耗 |
+| 营业数据 | `openHour`, `closeHour`, `businessHours` | 营业时长信息 |
+| 维修信息 | `hasMaintenance`, `maintenanceType`, `maintenanceDesc` | 维修记录关联 |
+| 判断依据 | `thresholdDailyLimit`, `thresholdFluctuationRate`, `hoursCorrectionFactor` | 当时使用的阈值 |
+| 计算结果 | `expectedConsumption`, `deviationRate` | 预期能耗与偏差率 |
+| 复核信息 | `status`, `attribution`, `note`, `evidenceSource`, `reviewer`, `reviewedAt` | 复核状态与证据 |
+
+> 交叉校验：`dailyConsumption` 应等于 `readingCurr - readingPrev`（误差 < 0.001）
+
+#### 5.6.2 批次数据导出
+
+1. 进入 **「数据管理」** 页面
+2. 在 **「导入批次历史」** 中找到要导出的批次
+3. 点击批次右侧的导出按钮：
+   - 📄 **CSV 导出** 按钮
+   - 📋 **JSON 导出** 按钮
+
+#### 批次导出内容
+
+| 字段 | 说明 |
+|------|------|
+| `batchId` | 批次 ID |
+| `rowIndex` | 行号（从 2 开始，对应 Excel 行号） |
+| `success` | 是否导入成功 |
+| `isDuplicate` | 是否为重复数据 |
+| `errorMessage` | 错误原因（失败时） |
+| 原始数据字段 | `storeId`, `date`, `reading` 等 |
+| `parentBatchId` | 父批次 ID（重试批次） |
+| `childBatchIds` | 子批次 ID 列表 |
+| `batchType`, `batchStatus` | 批次类型与状态 |
+| `batchCreatedAt` | 导入时间 |
+
+---
+
+## 6. 数据格式规范
+
+### 6.1 电表读数格式
+
+**CSV 格式：**
+```csv
+storeId,date,reading
+S001,2026-06-01,1000
+S001,2026-06-02,1130
+S001,2026-06-03,1265
+```
+
+**JSON 格式：**
+```json
+[
+  { "storeId": "S001", "date": "2026-06-01", "reading": 1000 },
+  { "storeId": "S001", "date": "2026-06-02", "reading": 1130 }
+]
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `storeId` | string | 门店唯一标识 |
+| `date` | string | 日期，格式 `YYYY-MM-DD` |
+| `reading` | number | 电表累计读数（kWh），必须 ≥ 0 |
+
+### 6.2 营业时长格式
+
+**CSV 格式：**
+```csv
+storeId,date,openHour,closeHour
+S001,2026-06-01,8,20
+S001,2026-06-02,8,22
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `openHour` | number | 开门时间（小时，0-24） |
+| `closeHour` | number | 关门时间（小时，必须 > openHour） |
+
+### 6.3 维修记录格式
+
+**CSV 格式：**
+```csv
+storeId,date,type,description
+S001,2026-06-15,设备维修,中央空调主机维修
+S001,2026-06-16,设备调试,空调系统校准
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `type` | string | 维修类型 |
+| `description` | string | 维修详情描述 |
+
+---
+
+## 7. 最小可复跑样例
+
+### 7.1 使用系统内置样例数据
+
+系统首次启动时会自动初始化样例数据（3 个门店 × 14 天），包含：
+
+| 门店 | 场景 | 预期异常数 |
+|------|------|----------|
+| 门店A - 旗舰正常店 | 读数稳定，无异常 | 0 条 |
+| 门店B - 异常店 | 某日能耗突增 + 读数倒退 | 2+ 条 |
+| 门店C - 维修干扰店 | 维修期间能耗异常 | 2 条 |
+
+#### 复跑完整链路
+
+```
+启动应用 → 总览看板查看统计 → 数据管理确认样例数据已导入
+→ 异常复盘筛选"待复核" → 对某条异常进行复核
+→ 设置筛选条件（如仅看"门店B"）→ 刷新浏览器验证筛选保留
+→ 导出异常数据为 CSV/JSON → 重启后端服务 → 验证数据不丢失
+```
+
+### 7.2 手动导入样例数据
+
+如需从零开始，可按以下步骤操作：
+
+#### 步骤 1：准备电表读数 CSV
+
+创建文件 `test_readings.csv`：
+```csv
+storeId,date,reading
+TEST01,2026-06-01,1000
+TEST01,2026-06-02,1100
+TEST01,2026-06-03,1200
+TEST01,2026-06-04,1500
+TEST01,2026-06-05,1495
+```
+
+> 说明：6月4日能耗突增到 300 kWh（阈值 150 kWh），6月5日读数倒退
+
+#### 步骤 2：准备营业时长 CSV
+
+创建文件 `test_hours.csv`：
+```csv
+storeId,date,openHour,closeHour
+TEST01,2026-06-01,8,20
+TEST01,2026-06-02,8,20
+TEST01,2026-06-03,8,20
+TEST01,2026-06-04,8,20
+TEST01,2026-06-05,8,20
+```
+
+#### 步骤 3：导入数据
+
+1. 进入 **数据管理** → **批次数据导入**
+2. 选择 **「电表读数」** 类型，上传 `test_readings.csv`
+3. 确认导入成功
+4. 选择 **「营业时长」** 类型，上传 `test_hours.csv`
+5. 确认导入成功
+
+#### 步骤 4：查看异常
+
+1. 进入 **异常复盘** 页面
+2. 应能看到至少 2 条异常：
+   - 6月4日：能耗突增（偏差率 > 30%）
+   - 6月5日：读数倒退（日能耗 < 0）
+
+#### 步骤 5：验证筛选保留
+
+1. 点击筛选，选择门店 `TEST01`，状态「待复核」
+2. 设置开始日期 `2026-06-01`，结束日期 `2026-06-05`
+3. 刷新浏览器（F5）
+4. 验证筛选条件仍保持
+
+#### 步骤 6：导出验证
+
+1. 导出为 CSV，打开文件确认包含完整字段
+2. 验证 `dailyConsumption` = `readingCurr` - `readingPrev`
+
+---
+
+## 8. 常见异常提示
+
+| 提示信息 | 原因 | 解决方案 |
+|----------|------|----------|
+| `批次ID xxx 已存在，请勿重复导入` | 同一批次 ID 被重复使用 | 系统已自动生成新批次 ID，重试即可 |
+| `第X行: 缺少必填字段 storeId` | 数据行缺少门店标识 | 在重试对话框中补充缺失字段 |
+| `第X行: date 格式必须为 YYYY-MM-DD` | 日期格式错误 | 修改为正确的日期格式，如 `2026-06-15` |
+| `第X行: reading 不能为负数` | 电表读数为负 | 检查读数是否正确，电表读数为累计值 |
+| `第X行: closeHour 必须大于 openHour` | 营业时长逻辑错误 | 修正关门时间，确保晚于开门时间 |
+| `门店 xxx 在 yyyy-mm-dd 已有读数记录...将被忽略` | 同门店同日期重复导入 | 如非误操作，无需处理；如需更新请先删除历史数据 |
+| `备注不能为空` | 复核时未填写备注 | 填写详细的异常原因或误报理由 |
+| `证据来源不能为空` | 复核时未填写证据 | 填写证据来源，如照片路径、工单编号 |
+| `日能耗上限必须大于0` | 阈值配置错误 | 修正为正数 |
+| `波动阈值不能为负数` | 阈值配置错误 | 修正为 ≥ 0 的数值 |
+
+---
+
+## 9. 文档与实现一致性验证
+
+### 9.1 自动化验证脚本
+
+项目内置测试脚本，可验证文档描述的关键功能是否与实现一致：
+
+```bash
+# 确保后端服务已启动（端口 3002）
+# 在新终端执行：
+
+# 测试1：数据管理完整流程（导入、失败、重试、筛选、导出）
+node test_data_management.mjs
+
+# 测试2：关键问题验证（空值拦截、必填校验、阈值重算、导出完整性）
+node test_critical_issues.mjs
+
+# 测试3：故障路径测试
+node test_failure_paths.mjs
+
+# 测试4：新门店新增测试
+node test_repro_new_store.mjs
+```
+
+### 9.2 手动验证清单
+
+#### ✅ 启动验证
+- [ ] 执行 `npm run dev`，前后端均正常启动
+- [ ] 访问 http://localhost:5173 能看到总览看板
+- [ ] 总览看板显示样例数据统计
+
+#### ✅ 导入流程验证
+- [ ] 能成功导入正确格式的 CSV 文件
+- [ ] 导入错误格式文件时显示具体错误信息
+- [ ] 失败批次可以点击「重试」并生成新批次
+- [ ] 重试成功后父子批次关联正确
+
+#### ✅ 筛选条件保留验证
+- [ ] 在批次历史中设置筛选条件（类型=电表读数，状态=成功）
+- [ ] 刷新浏览器，筛选条件仍然保持
+- [ ] 在异常复盘中设置筛选条件（状态=待复核，门店=门店B）
+- [ ] 刷新浏览器，筛选条件仍然保持
+
+#### ✅ 导出结果验证
+- [ ] 异常数据导出为 CSV，包含 `readingPrev`, `readingCurr` 等字段
+- [ ] 异常数据导出为 JSON，结构完整
+- [ ] 导出的 `dailyConsumption` = `readingCurr` - `readingPrev`
+- [ ] 批次数据导出包含成功/失败状态和错误信息
+
+#### ✅ 重启数据保留验证
+- [ ] 对某条异常进行复核（填写备注和证据）
+- [ ] 停止后端服务（Ctrl+C），再重新启动 `npm run server:dev`
+- [ ] 刷新前端，确认已复核的异常状态和备注仍然存在
+- [ ] 总览看板统计数据与重启前一致
+
+---
+
+## 10. 数据持久化
+
+### 10.1 数据库文件
+
+- 路径：`data/app.db`
+- 类型：SQLite 3
+- 日志模式：WAL（Write-Ahead Logging）
+
+### 10.2 备份与恢复
+
+```bash
+# 备份数据库（直接复制文件即可）
+copy data\app.db backup\app.db.backup
+
+# 恢复数据库
+copy backup\app.db.backup data\app.db
+```
+
+### 10.3 重置为初始状态
+
+如需清空所有数据重新开始：
+
+```bash
+# 停止服务后，删除数据库文件
+del data\app.db data\app.db-shm data\app.db-wal
+
+# 重新启动服务，系统会自动创建新数据库并初始化样例数据
+npm run dev
+```
+
+---
+
+## 附：项目结构
+
+```
+zzz-00051/
+├── api/                    # 后端代码
+│   ├── routes/            # API 路由
+│   │   ├── import.ts      # 导入相关接口
+│   │   ├── anomalies.ts   # 异常管理接口
+│   │   ├── thresholds.ts  # 阈值配置接口
+│   │   ├── trends.ts      # 趋势数据接口
+│   │   ├── stores.ts      # 门店接口
+│   │   └── auth.ts        # 认证接口
+│   ├── app.ts             # Express 应用
+│   ├── server.ts          # 服务器入口
+│   ├── db.ts              # 数据库初始化
+│   ├── services.ts        # 业务逻辑层
+│   ├── repositories.ts    # 数据访问层
+│   └── seedData.ts        # 样例数据初始化
+├── src/                    # 前端代码
+│   ├── pages/             # 页面组件
+│   │   ├── Dashboard.tsx       # 总览看板
+│   │   ├── DataManagement.tsx  # 数据管理
+│   │   └── AnomalyReview.tsx   # 异常复盘
+│   ├── components/        # 通用组件
+│   ├── store/             # 状态管理
+│   │   └── useStore.ts    # Zustand store
+│   └── App.tsx            # 应用入口
+├── shared/                 # 共享类型定义
+│   └── types.ts           # TypeScript 类型
+├── data/                   # 数据库文件
+│   └── app.db             # SQLite 数据库
+├── test_*.mjs             # 测试脚本
+├── package.json           # 项目配置
+├── vite.config.ts         # Vite 配置
+└── README.md              # 本文档
 ```

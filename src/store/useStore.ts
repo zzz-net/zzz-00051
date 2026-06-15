@@ -16,6 +16,7 @@ import type {
 
 const LS_BATCH_FILTERS = "dm_batch_filters";
 const LS_RECENT_BATCHES = "dm_recent_batches";
+const LS_ANOMALY_FILTERS = "dm_anomaly_filters";
 const MAX_RECENT = 5;
 
 function loadFromLS<T>(key: string, fallback: T): T {
@@ -60,6 +61,7 @@ interface AppState {
   setAnomalyFilters: (filters: Partial<AppState["anomalyFilters"]>) => void;
   setBatchFilters: (filters: Partial<BatchFilter>) => void;
   clearBatchFilters: () => void;
+  clearAnomalyFilters: () => void;
   markRecentBatch: (batchId: string) => void;
   clearRecentBatches: () => void;
   fetchStores: () => Promise<void>;
@@ -105,7 +107,7 @@ export const useStore = create<AppState>((set, get) => ({
   error: null,
   stores: [],
   anomalies: [],
-  anomalyFilters: {},
+  anomalyFilters: loadFromLS(LS_ANOMALY_FILTERS, {}),
   dashboardStats: null,
   importBatches: [],
   batchFilters: loadFromLS<BatchFilter>(LS_BATCH_FILTERS, {}),
@@ -117,7 +119,17 @@ export const useStore = create<AppState>((set, get) => ({
   currentUser: "张管理员",
 
   setCurrentUser: (user) => set({ currentUser: user }),
-  setAnomalyFilters: (filters) => set((state) => ({ anomalyFilters: { ...state.anomalyFilters, ...filters } })),
+  setAnomalyFilters: (filters) => {
+    const merged = { ...get().anomalyFilters, ...filters };
+    Object.keys(merged).forEach((k) => {
+      const key = k as keyof AppState["anomalyFilters"];
+      if (merged[key] === undefined || merged[key] === "" || merged[key] === null) {
+        delete merged[key];
+      }
+    });
+    set({ anomalyFilters: merged });
+    saveToLS(LS_ANOMALY_FILTERS, merged);
+  },
   clearError: () => set({ error: null }),
 
   setBatchFilters: (filters) => {
@@ -135,6 +147,11 @@ export const useStore = create<AppState>((set, get) => ({
   clearBatchFilters: () => {
     set({ batchFilters: {} });
     saveToLS(LS_BATCH_FILTERS, {});
+  },
+
+  clearAnomalyFilters: () => {
+    set({ anomalyFilters: {} });
+    saveToLS(LS_ANOMALY_FILTERS, {});
   },
 
   markRecentBatch: (batchId) => {
