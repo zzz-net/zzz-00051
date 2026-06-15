@@ -1,6 +1,7 @@
 import * as repo from "./repositories.js";
 import { db } from "./repositories.js";
 import { v4 as uuidv4 } from "uuid";
+import Papa from "papaparse";
 import type {
   MeterReading,
   BusinessHours,
@@ -9,6 +10,7 @@ import type {
   AnomalyStatus,
   ReviewPayload,
   Anomaly,
+  ImportBatchType,
 } from "../shared/types.js";
 
 const STANDARD_HOURS = 12;
@@ -150,49 +152,204 @@ export function validateThreshold(config: Partial<ThresholdConfig>): ValidationR
   return { valid: errors.length === 0, errors, warnings };
 }
 
+function getCoverageDates(data: any[]): { start: string | null; end: string | null } {
+  if (!data || data.length === 0) return { start: null, end: null };
+  const dates = data
+    .map((r) => r.date)
+    .filter((d) => d && /^\d{4}-\d{2}-\d{2}$/.test(String(d)))
+    .sort();
+  if (dates.length === 0) return { start: null, end: null };
+  return { start: dates[0], end: dates[dates.length - 1] };
+}
+
+interface ConflictInfo {
+  rowIndex: number;
+  storeId: string;
+  date: string;
+  existingBatchId?: string | null;
+  message: string;
+}
+
+function detectReadingsConflicts(data: any[]): ConflictInfo[] {
+  const conflicts: ConflictInfo[] = [];
+  data.forEach((row, idx) => {
+    if (!row.storeId || !row.date) return;
+    const existing = db
+      .prepare("SELECT batch_id FROM meter_readings WHERE store_id = ? AND date = ? LIMIT 1")
+      .get(row.storeId, row.date) as any;
+    if (existing) {
+      conflicts.push({
+        rowIndex: idx,
+        storeId: row.storeId,
+        date: row.date,
+        existingBatchId: existing.batch_id,
+        message: `门店 ${row.storeId} 在 ${row.date} 已有读数记录（来自批次 ${existing.batch_id?.slice(0, 8)}），将被忽略避免覆盖历史数据`,
+      });
+    }
+  });
+  return conflicts;
+}
+
+function detectHoursConflicts(data: any[]): ConflictInfo[] {
+  const conflicts: ConflictInfo[] = [];
+  data.forEach((row, idx) => {
+    if (!row.storeId || !row.date) return;
+    const existing = db
+      .prepare("SELECT batch_id FROM business_hours WHERE store_id = ? AND date = ? LIMIT 1")
+      .get(row.storeId, row.date) as any;
+    if (existing) {
+      conflicts.push({
+        rowIndex: idx,
+        storeId: row.storeId,
+        date: row.date,
+        existingBatchId: existing.batch_id,
+        message: `门店 ${row.storeId} 在 ${row.date} 已有营业时长（来自批次 ${existing.batch_id?.slice(0, 8)}），将被忽略避免覆盖历史数据`,
+      });
+    }
+  });
+  return conflicts;
+}
+
+function detectMaintenanceConflicts(data: any[]): ConflictInfo[] {
+  const conflicts: ConflictInfo[] = [];
+  data.forEach((row, idx) => {
+    if (!row.storeId || !row.date || !row.type || !row.description) return;
+    const existing = db
+      .prepare("SELECT batch_id FROM maintenance_records WHERE store_id = ? AND date = ? AND type = ? AND description = ? LIMIT 1")
+      .get(row.storeId, row.date, row.type, row.description) as any;
+    if (existing) {
+      conflicts.push({
+        rowIndex: idx,
+        storeId: row.storeId,
+        date: row.date,
+        existingBatchId: existing.batch_id,
+        message: `门店 ${row.storeId} 在 ${row.date} 已有相同维修记录（来自批次 ${existing.batch_id?.slice(0, 8)}），将被忽略避免覆盖历史数据`,
+      });
+    }
+  });
+  return conflicts;
+}
+
+function serializeOriginalContent(data: any[], fileType: string): string {
+  if (fileType === "csv") {
+    return toCSV(data);
+  }
+  return JSON.stringify(data, null, 2);
+}
+
 export async function importReadings(
   data: Omit<MeterReading, "id" | "batchId">[],
   batchId: string,
-  autoUpsertStores = true
+  autoUpsertStores = true,
+  options?: {
+    fileType?: string;
+    fileName?: string;
+    parentBatchId?: string;
+  }
 ) {
   const validation = validateReadings(data, batchId);
+  const coverage = getCoverageDates(data);
+  const originalContent = serializeOriginalContent(data, options?.fileType || "json");
+
   if (!validation.valid) {
-    const isDuplicate = validation.errors.some(e => e.includes("已存在，请勿重复导入"));
-    if (!isDuplicate) {
-      repo.createImportBatch("readings", data.length, "failed", JSON.stringify(validation.errors), batchId);
+    const isDuplicateBatch = validation.errors.some((e) => e.includes("已存在，请勿重复导入"));
+    if (!isDuplicateBatch) {
+      repo.createImportBatch("readings", data.length, "failed", {
+        errors: JSON.stringify(validation.errors),
+        batchId,
+        fileType: options?.fileType,
+        fileName: options?.fileName,
+        successCount: 0,
+        failureCount: data.length,
+        originalContent,
+        parentBatchId: options?.parentBatchId,
+        coverageStartDate: coverage.start,
+        coverageEndDate: coverage.end,
+      });
+      data.forEach((row, idx) => {
+        const rowErrors = validation.errors.filter((e) => e.includes(`第${idx + 2}行`));
+        const errMsg = rowErrors.length > 0 ? rowErrors.join("; ") : "整体校验失败";
+        repo.insertBatchRecord(batchId, idx, row, false, errMsg);
+      });
     }
     return { success: false, errors: validation.errors, warnings: validation.warnings };
   }
+
+  const conflicts = detectReadingsConflicts(data);
+  const conflictIndexes = new Set(conflicts.map((c) => c.rowIndex));
+  const conflictMessages = conflicts.map((c) => c.message);
+  const allWarnings = [...validation.warnings, ...conflictMessages];
+
+  repo.createImportBatch("readings", data.length, "failed", {
+    batchId,
+    fileType: options?.fileType,
+    fileName: options?.fileName,
+    originalContent,
+    parentBatchId: options?.parentBatchId,
+    coverageStartDate: coverage.start,
+    coverageEndDate: coverage.end,
+  });
+
   if (autoUpsertStores) {
-    const storeIds = [...new Set(data.map(r => r.storeId))];
+    const storeIds = [...new Set(data.map((r) => r.storeId))];
     for (const storeId of storeIds) {
       if (!repo.getStoreById(storeId)) {
         repo.upsertStore({ name: storeId, area: 100, category: "默认" }, storeId);
       }
     }
   }
+
   const insertMany = db.prepare(
     "INSERT OR IGNORE INTO meter_readings (id, store_id, date, reading, batch_id) VALUES (?, ?, ?, ?, ?)"
   );
+
+  let successCount = 0;
+  let failureCount = 0;
   const tx = db.transaction((rows: Omit<MeterReading, "id" | "batchId">[]) => {
-    for (const row of rows) {
-      insertMany.run(uuidv4(), row.storeId, row.date, row.reading, batchId);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const isConflict = conflictIndexes.has(i);
+      if (isConflict) {
+        failureCount++;
+        repo.insertBatchRecord(batchId, i, row, false, conflicts.find((c) => c.rowIndex === i)?.message, true);
+        continue;
+      }
+      const info = insertMany.run(uuidv4(), row.storeId, row.date, row.reading, batchId);
+      const inserted = (info as any).changes > 0;
+      if (inserted) {
+        successCount++;
+        repo.insertBatchRecord(batchId, i, row, true);
+      } else {
+        failureCount++;
+        repo.insertBatchRecord(batchId, i, row, false, "数据库写入失败或记录已存在", true);
+      }
     }
   });
   tx(data);
-  repo.createImportBatch(
-    "readings",
-    data.length,
-    validation.warnings.length > 0 ? "partial" : "success",
-    validation.warnings.length > 0 ? JSON.stringify(validation.warnings) : null,
-    batchId
-  );
-  const anomalyCount = recalculateAnomaliesForStores([...new Set(data.map(r => r.storeId))]);
+
+  const totalProcessed = successCount + failureCount;
+  const batchStatus: "success" | "partial" | "failed" =
+    successCount === data.length
+      ? "success"
+      : successCount > 0
+      ? "partial"
+      : "failed";
+
+  repo.updateImportBatchStatus(batchId, batchStatus, {
+    errors: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
+    successCount,
+    failureCount,
+  });
+
+  const anomalyCount = recalculateAnomaliesForStores([...new Set(data.map((r) => r.storeId))]);
   return {
     success: true,
     batchId,
     recordCount: data.length,
-    warnings: validation.warnings,
+    successCount,
+    failureCount,
+    warnings: allWarnings,
+    conflicts: conflictMessages,
     anomalyCount,
   };
 }
@@ -200,46 +357,115 @@ export async function importReadings(
 export async function importHours(
   data: Omit<BusinessHours, "id" | "batchId">[],
   batchId: string,
-  autoUpsertStores = true
+  autoUpsertStores = true,
+  options?: {
+    fileType?: string;
+    fileName?: string;
+    parentBatchId?: string;
+  }
 ) {
   const validation = validateHours(data, batchId);
+  const coverage = getCoverageDates(data);
+  const originalContent = serializeOriginalContent(data, options?.fileType || "json");
+
   if (!validation.valid) {
-    const isDuplicate = validation.errors.some(e => e.includes("已存在，请勿重复导入"));
-    if (!isDuplicate) {
-      repo.createImportBatch("hours", data.length, "failed", JSON.stringify(validation.errors), batchId);
+    const isDuplicateBatch = validation.errors.some((e) => e.includes("已存在，请勿重复导入"));
+    if (!isDuplicateBatch) {
+      repo.createImportBatch("hours", data.length, "failed", {
+        errors: JSON.stringify(validation.errors),
+        batchId,
+        fileType: options?.fileType,
+        fileName: options?.fileName,
+        successCount: 0,
+        failureCount: data.length,
+        originalContent,
+        parentBatchId: options?.parentBatchId,
+        coverageStartDate: coverage.start,
+        coverageEndDate: coverage.end,
+      });
+      data.forEach((row, idx) => {
+        const rowErrors = validation.errors.filter((e) => e.includes(`第${idx + 2}行`));
+        const errMsg = rowErrors.length > 0 ? rowErrors.join("; ") : "整体校验失败";
+        repo.insertBatchRecord(batchId, idx, row, false, errMsg);
+      });
     }
     return { success: false, errors: validation.errors, warnings: validation.warnings };
   }
+
+  const conflicts = detectHoursConflicts(data);
+  const conflictIndexes = new Set(conflicts.map((c) => c.rowIndex));
+  const conflictMessages = conflicts.map((c) => c.message);
+  const allWarnings = [...validation.warnings, ...conflictMessages];
+
+  repo.createImportBatch("hours", data.length, "failed", {
+    batchId,
+    fileType: options?.fileType,
+    fileName: options?.fileName,
+    originalContent,
+    parentBatchId: options?.parentBatchId,
+    coverageStartDate: coverage.start,
+    coverageEndDate: coverage.end,
+  });
+
   if (autoUpsertStores) {
-    const storeIds = [...new Set(data.map(r => r.storeId))];
+    const storeIds = [...new Set(data.map((r) => r.storeId))];
     for (const storeId of storeIds) {
       if (!repo.getStoreById(storeId)) {
         repo.upsertStore({ name: storeId, area: 100, category: "默认" }, storeId);
       }
     }
   }
+
   const insertMany = db.prepare(
     "INSERT OR IGNORE INTO business_hours (id, store_id, date, open_hour, close_hour, batch_id) VALUES (?, ?, ?, ?, ?, ?)"
   );
+
+  let successCount = 0;
+  let failureCount = 0;
   const tx = db.transaction((rows: Omit<BusinessHours, "id" | "batchId">[]) => {
-    for (const row of rows) {
-      insertMany.run(uuidv4(), row.storeId, row.date, row.openHour, row.closeHour, batchId);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const isConflict = conflictIndexes.has(i);
+      if (isConflict) {
+        failureCount++;
+        repo.insertBatchRecord(batchId, i, row, false, conflicts.find((c) => c.rowIndex === i)?.message, true);
+        continue;
+      }
+      const info = insertMany.run(uuidv4(), row.storeId, row.date, row.openHour, row.closeHour, batchId);
+      const inserted = (info as any).changes > 0;
+      if (inserted) {
+        successCount++;
+        repo.insertBatchRecord(batchId, i, row, true);
+      } else {
+        failureCount++;
+        repo.insertBatchRecord(batchId, i, row, false, "数据库写入失败或记录已存在", true);
+      }
     }
   });
   tx(data);
-  repo.createImportBatch(
-    "hours",
-    data.length,
-    validation.warnings.length > 0 ? "partial" : "success",
-    validation.warnings.length > 0 ? JSON.stringify(validation.warnings) : null,
-    batchId
-  );
-  const anomalyCount = recalculateAnomaliesForStores([...new Set(data.map(r => r.storeId))]);
+
+  const batchStatus: "success" | "partial" | "failed" =
+    successCount === data.length
+      ? "success"
+      : successCount > 0
+      ? "partial"
+      : "failed";
+
+  repo.updateImportBatchStatus(batchId, batchStatus, {
+    errors: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
+    successCount,
+    failureCount,
+  });
+
+  const anomalyCount = recalculateAnomaliesForStores([...new Set(data.map((r) => r.storeId))]);
   return {
     success: true,
     batchId,
     recordCount: data.length,
-    warnings: validation.warnings,
+    successCount,
+    failureCount,
+    warnings: allWarnings,
+    conflicts: conflictMessages,
     anomalyCount,
   };
 }
@@ -247,48 +473,215 @@ export async function importHours(
 export async function importMaintenance(
   data: Omit<MaintenanceRecord, "id" | "batchId">[],
   batchId: string,
-  autoUpsertStores = true
+  autoUpsertStores = true,
+  options?: {
+    fileType?: string;
+    fileName?: string;
+    parentBatchId?: string;
+  }
 ) {
   const validation = validateMaintenance(data, batchId);
+  const coverage = getCoverageDates(data);
+  const originalContent = serializeOriginalContent(data, options?.fileType || "json");
+
   if (!validation.valid) {
-    const isDuplicate = validation.errors.some(e => e.includes("已存在，请勿重复导入"));
-    if (!isDuplicate) {
-      repo.createImportBatch("maintenance", data.length, "failed", JSON.stringify(validation.errors), batchId);
+    const isDuplicateBatch = validation.errors.some((e) => e.includes("已存在，请勿重复导入"));
+    if (!isDuplicateBatch) {
+      repo.createImportBatch("maintenance", data.length, "failed", {
+        errors: JSON.stringify(validation.errors),
+        batchId,
+        fileType: options?.fileType,
+        fileName: options?.fileName,
+        successCount: 0,
+        failureCount: data.length,
+        originalContent,
+        parentBatchId: options?.parentBatchId,
+        coverageStartDate: coverage.start,
+        coverageEndDate: coverage.end,
+      });
+      data.forEach((row, idx) => {
+        const rowErrors = validation.errors.filter((e) => e.includes(`第${idx + 2}行`));
+        const errMsg = rowErrors.length > 0 ? rowErrors.join("; ") : "整体校验失败";
+        repo.insertBatchRecord(batchId, idx, row, false, errMsg);
+      });
     }
     return { success: false, errors: validation.errors, warnings: validation.warnings };
   }
+
+  const conflicts = detectMaintenanceConflicts(data);
+  const conflictIndexes = new Set(conflicts.map((c) => c.rowIndex));
+  const conflictMessages = conflicts.map((c) => c.message);
+  const allWarnings = [...validation.warnings, ...conflictMessages];
+
+  repo.createImportBatch("maintenance", data.length, "failed", {
+    batchId,
+    fileType: options?.fileType,
+    fileName: options?.fileName,
+    originalContent,
+    parentBatchId: options?.parentBatchId,
+    coverageStartDate: coverage.start,
+    coverageEndDate: coverage.end,
+  });
+
   if (autoUpsertStores) {
-    const storeIds = [...new Set(data.map(r => r.storeId))];
+    const storeIds = [...new Set(data.map((r) => r.storeId))];
     for (const storeId of storeIds) {
       if (!repo.getStoreById(storeId)) {
         repo.upsertStore({ name: storeId, area: 100, category: "默认" }, storeId);
       }
     }
   }
+
   const insertMany = db.prepare(
     "INSERT OR IGNORE INTO maintenance_records (id, store_id, date, type, description, batch_id) VALUES (?, ?, ?, ?, ?, ?)"
   );
+
+  let successCount = 0;
+  let failureCount = 0;
   const tx = db.transaction((rows: Omit<MaintenanceRecord, "id" | "batchId">[]) => {
-    for (const row of rows) {
-      insertMany.run(uuidv4(), row.storeId, row.date, row.type, row.description, batchId);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const isConflict = conflictIndexes.has(i);
+      if (isConflict) {
+        failureCount++;
+        repo.insertBatchRecord(batchId, i, row, false, conflicts.find((c) => c.rowIndex === i)?.message, true);
+        continue;
+      }
+      const info = insertMany.run(uuidv4(), row.storeId, row.date, row.type, row.description, batchId);
+      const inserted = (info as any).changes > 0;
+      if (inserted) {
+        successCount++;
+        repo.insertBatchRecord(batchId, i, row, true);
+      } else {
+        failureCount++;
+        repo.insertBatchRecord(batchId, i, row, false, "数据库写入失败或记录已存在", true);
+      }
     }
   });
   tx(data);
-  repo.createImportBatch(
-    "maintenance",
-    data.length,
-    validation.warnings.length > 0 ? "partial" : "success",
-    validation.warnings.length > 0 ? JSON.stringify(validation.warnings) : null,
-    batchId
-  );
-  const anomalyCount = recalculateAnomaliesForStores([...new Set(data.map(r => r.storeId))]);
+
+  const batchStatus: "success" | "partial" | "failed" =
+    successCount === data.length
+      ? "success"
+      : successCount > 0
+      ? "partial"
+      : "failed";
+
+  repo.updateImportBatchStatus(batchId, batchStatus, {
+    errors: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
+    successCount,
+    failureCount,
+  });
+
+  const anomalyCount = recalculateAnomaliesForStores([...new Set(data.map((r) => r.storeId))]);
   return {
     success: true,
     batchId,
     recordCount: data.length,
-    warnings: validation.warnings,
+    successCount,
+    failureCount,
+    warnings: allWarnings,
+    conflicts: conflictMessages,
     anomalyCount,
   };
+}
+
+export async function retryImport(
+  parentBatchId: string,
+  correctedContent: string,
+  newBatchId: string
+): Promise<any> {
+  const parentBatch = repo.getImportBatchById(parentBatchId);
+  if (!parentBatch) {
+    return { success: false, errors: [`父批次 ${parentBatchId} 不存在`] };
+  }
+
+  let data: any[];
+  const fileType = parentBatch.fileType || "json";
+  if (fileType === "csv") {
+    const parsed = Papa.parse(correctedContent, { header: true, skipEmptyLines: true });
+    if (parsed.errors.length > 0) {
+      return { success: false, errors: parsed.errors.map((e: any) => e.message) };
+    }
+    data = parsed.data;
+  } else {
+    try {
+      data = typeof correctedContent === "string" ? JSON.parse(correctedContent) : correctedContent;
+    } catch {
+      return { success: false, errors: ["JSON 格式解析失败"] };
+    }
+  }
+
+  const baseOptions = {
+    fileType,
+    fileName: parentBatch.fileName || undefined,
+    parentBatchId,
+  };
+
+  if (parentBatch.type === "readings") {
+    return importReadings(data as any, newBatchId, true, baseOptions);
+  } else if (parentBatch.type === "hours") {
+    return importHours(data as any, newBatchId, true, baseOptions);
+  } else {
+    return importMaintenance(data as any, newBatchId, true, baseOptions);
+  }
+}
+
+export function getBatchExportData(batchId: string, format: "csv" | "json"): string {
+  const detail = repo.getImportBatchDetail(batchId);
+  if (!detail) {
+    return "";
+  }
+
+  const rows = detail.records.map((rec) => ({
+    batchId: detail.id,
+    rowIndex: rec.rowIndex + 2,
+    success: rec.success ? "是" : "否",
+    isDuplicate: rec.isDuplicate ? "是" : "否",
+    errorMessage: rec.errorMessage || "",
+    ...(typeof rec.recordData === "object" ? rec.recordData : { recordData: String(rec.recordData) }),
+    parentBatchId: detail.parentBatchId || "",
+    childBatchIds: detail.childBatches.map((b) => b.id).join("; "),
+    batchType: detail.type,
+    batchStatus: detail.status,
+    batchCreatedAt: detail.createdAt,
+  }));
+
+  if (format === "csv") {
+    return toCSV(rows);
+  }
+  return JSON.stringify(
+    {
+      batch: {
+        id: detail.id,
+        type: detail.type,
+        fileType: detail.fileType,
+        fileName: detail.fileName,
+        recordCount: detail.recordCount,
+        successCount: detail.successCount,
+        failureCount: detail.failureCount,
+        status: detail.status,
+        errors: detail.errors ? JSON.parse(detail.errors) : null,
+        coverageStartDate: detail.coverageStartDate,
+        coverageEndDate: detail.coverageEndDate,
+        parentBatchId: detail.parentBatchId,
+        parentBatch: detail.parentBatch
+          ? { id: detail.parentBatch.id, status: detail.parentBatch.status, createdAt: detail.parentBatch.createdAt }
+          : null,
+        childBatches: detail.childBatches.map((b) => ({
+          id: b.id,
+          status: b.status,
+          successCount: b.successCount,
+          failureCount: b.failureCount,
+          createdAt: b.createdAt,
+        })),
+        createdAt: detail.createdAt,
+      },
+      records: rows,
+    },
+    null,
+    2
+  );
 }
 
 export function recalculateAnomaliesForStores(storeIds: string[]): number {

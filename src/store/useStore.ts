@@ -5,10 +5,36 @@ import type {
   AnomalyStatus,
   DashboardStats,
   ImportBatch,
+  ImportBatchDetail,
+  ImportBatchType,
+  ImportBatchStatus,
   ThresholdConfig,
   TrendData,
   ReviewLog,
+  BatchFilter,
 } from "../../shared/types";
+
+const LS_BATCH_FILTERS = "dm_batch_filters";
+const LS_RECENT_BATCHES = "dm_recent_batches";
+const MAX_RECENT = 5;
+
+function loadFromLS<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw) as T;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+function saveToLS<T>(key: string, value: T) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* ignore */
+  }
+}
 
 interface AppState {
   loading: boolean;
@@ -23,22 +49,38 @@ interface AppState {
   };
   dashboardStats: DashboardStats | null;
   importBatches: ImportBatch[];
+  batchFilters: BatchFilter;
+  recentBatchIds: string[];
+  selectedBatchDetail: ImportBatchDetail | null;
   thresholds: ThresholdConfig[];
   selectedTrend: TrendData | null;
   reviewLogs: ReviewLog[];
   currentUser: string;
   setCurrentUser: (user: string) => void;
   setAnomalyFilters: (filters: Partial<AppState["anomalyFilters"]>) => void;
+  setBatchFilters: (filters: Partial<BatchFilter>) => void;
+  clearBatchFilters: () => void;
+  markRecentBatch: (batchId: string) => void;
+  clearRecentBatches: () => void;
   fetchStores: () => Promise<void>;
   fetchAnomalies: () => Promise<void>;
   fetchDashboardStats: () => Promise<void>;
   fetchImportBatches: () => Promise<void>;
+  fetchBatchDetail: (batchId: string) => Promise<ImportBatchDetail | null>;
   fetchThresholds: () => Promise<void>;
   fetchTrendData: (storeId: string) => Promise<void>;
   fetchReviewLogs: (anomalyId: string) => Promise<void>;
   reviewAnomaly: (id: string, payload: any) => Promise<void>;
   saveThreshold: (storeId: string | null, config: any) => Promise<void>;
-  importData: (type: string, fileContent: string, fileType: string, batchId?: string) => Promise<any>;
+  importData: (
+    type: string,
+    fileContent: string,
+    fileType: string,
+    batchId?: string,
+    fileName?: string
+  ) => Promise<any>;
+  retryImport: (parentBatchId: string, correctedContent: string, newBatchId?: string) => Promise<any>;
+  exportBatch: (batchId: string, format: "csv" | "json") => void;
   recalculateAnomalies: () => Promise<void>;
   clearError: () => void;
 }
@@ -52,7 +94,8 @@ async function apiCall<T = any>(url: string, options: RequestInit = {}): Promise
   });
   const data = await res.json();
   if (!res.ok || !data.success) {
-    throw new Error(data.error || data.message || "请求失败");
+    const err = data.error || data.message || (data.errors?.join?.("; ") || "请求失败");
+    throw new Error(err);
   }
   return data.data;
 }
@@ -65,6 +108,9 @@ export const useStore = create<AppState>((set, get) => ({
   anomalyFilters: {},
   dashboardStats: null,
   importBatches: [],
+  batchFilters: loadFromLS<BatchFilter>(LS_BATCH_FILTERS, {}),
+  recentBatchIds: loadFromLS<string[]>(LS_RECENT_BATCHES, []),
+  selectedBatchDetail: null,
   thresholds: [],
   selectedTrend: null,
   reviewLogs: [],
@@ -73,6 +119,34 @@ export const useStore = create<AppState>((set, get) => ({
   setCurrentUser: (user) => set({ currentUser: user }),
   setAnomalyFilters: (filters) => set((state) => ({ anomalyFilters: { ...state.anomalyFilters, ...filters } })),
   clearError: () => set({ error: null }),
+
+  setBatchFilters: (filters) => {
+    const merged = { ...get().batchFilters, ...filters };
+    Object.keys(merged).forEach((k) => {
+      const key = k as keyof BatchFilter;
+      if (merged[key] === undefined || merged[key] === "" || merged[key] === null) {
+        delete merged[key];
+      }
+    });
+    set({ batchFilters: merged });
+    saveToLS(LS_BATCH_FILTERS, merged);
+  },
+
+  clearBatchFilters: () => {
+    set({ batchFilters: {} });
+    saveToLS(LS_BATCH_FILTERS, {});
+  },
+
+  markRecentBatch: (batchId) => {
+    const list = [batchId, ...get().recentBatchIds.filter((id) => id !== batchId)].slice(0, MAX_RECENT);
+    set({ recentBatchIds: list });
+    saveToLS(LS_RECENT_BATCHES, list);
+  },
+
+  clearRecentBatches: () => {
+    set({ recentBatchIds: [] });
+    saveToLS(LS_RECENT_BATCHES, []);
+  },
 
   fetchStores: async () => {
     set({ loading: true });
@@ -120,10 +194,29 @@ export const useStore = create<AppState>((set, get) => ({
 
   fetchImportBatches: async () => {
     try {
-      const data = await apiCall<ImportBatch[]>("/import/batches");
+      const params = new URLSearchParams();
+      const f = get().batchFilters;
+      if (f.type) params.append("type", f.type);
+      if (f.status) params.append("status", f.status);
+      if (f.startDate) params.append("startDate", f.startDate);
+      if (f.endDate) params.append("endDate", f.endDate);
+      const qs = params.toString();
+      const data = await apiCall<ImportBatch[]>(`/import/batches${qs ? "?" + qs : ""}`);
       set({ importBatches: data });
     } catch (e) {
       set({ error: (e as Error).message });
+    }
+  },
+
+  fetchBatchDetail: async (batchId) => {
+    try {
+      const data = await apiCall<ImportBatchDetail>(`/import/batches/${batchId}`);
+      set({ selectedBatchDetail: data });
+      get().markRecentBatch(batchId);
+      return data;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
     }
   },
 
@@ -193,12 +286,12 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  importData: async (type, fileContent, fileType, batchId) => {
+  importData: async (type, fileContent, fileType, batchId, fileName) => {
     set({ loading: true });
     try {
       const result = await apiCall(`/import/${type}`, {
         method: "POST",
-        body: JSON.stringify({ fileContent, fileType, batchId }),
+        body: JSON.stringify({ fileContent, fileType, batchId, fileName }),
       });
       await get().fetchImportBatches();
       await get().fetchAnomalies();
@@ -210,6 +303,33 @@ export const useStore = create<AppState>((set, get) => ({
     } finally {
       set({ loading: false });
     }
+  },
+
+  retryImport: async (parentBatchId, correctedContent, newBatchId) => {
+    set({ loading: true });
+    try {
+      const result = await apiCall(`/import/batches/${parentBatchId}/retry`, {
+        method: "POST",
+        body: JSON.stringify({ correctedContent, newBatchId }),
+      });
+      await get().fetchImportBatches();
+      await get().fetchAnomalies();
+      await get().fetchDashboardStats();
+      return result;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      throw e;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  exportBatch: (batchId, format) => {
+    const url = `${API_BASE}/import/batches/${batchId}/export?format=${format}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "";
+    a.click();
   },
 
   recalculateAnomalies: async () => {

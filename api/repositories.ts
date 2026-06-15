@@ -13,6 +13,9 @@ import type {
   ImportBatch,
   ImportBatchType,
   ImportBatchStatus,
+  ImportBatchRecord,
+  ImportBatchDetail,
+  BatchFilter,
   DashboardStats,
   TrendData,
 } from "../shared/types.js";
@@ -332,23 +335,118 @@ export function getReviewLogs(anomalyId: string): ReviewLog[] {
   }));
 }
 
-export function getImportBatches(): ImportBatch[] {
-  const rows = db.prepare(
-    "SELECT id, type, record_count, status, errors, created_at FROM import_batches ORDER BY created_at DESC"
-  ).all() as any[];
-  return rows.map(row => ({
+function rowToImportBatch(row: any): ImportBatch {
+  return {
     id: row.id,
     type: row.type as ImportBatchType,
+    fileType: row.file_type ?? null,
+    fileName: row.file_name ?? null,
     recordCount: row.record_count,
+    successCount: row.success_count ?? 0,
+    failureCount: row.failure_count ?? 0,
     status: row.status as ImportBatchStatus,
     errors: row.errors,
+    originalContent: row.original_content ?? null,
+    parentBatchId: row.parent_batch_id ?? null,
+    coverageStartDate: row.coverage_start_date ?? null,
+    coverageEndDate: row.coverage_end_date ?? null,
     createdAt: row.created_at,
-  }));
+  };
+}
+
+export function getImportBatches(filter?: BatchFilter): ImportBatch[] {
+  let sql = `SELECT id, type, file_type, file_name, record_count, success_count, failure_count,
+             status, errors, original_content, parent_batch_id, coverage_start_date, coverage_end_date, created_at
+             FROM import_batches WHERE 1=1`;
+  const params: any[] = [];
+  if (filter?.type) { sql += " AND type = ?"; params.push(filter.type); }
+  if (filter?.status) { sql += " AND status = ?"; params.push(filter.status); }
+  if (filter?.startDate) { sql += " AND date(created_at) >= ?"; params.push(filter.startDate); }
+  if (filter?.endDate) { sql += " AND date(created_at) <= ?"; params.push(filter.endDate); }
+  sql += " ORDER BY created_at DESC";
+  const rows = db.prepare(sql).all(...params) as any[];
+  return rows.map(rowToImportBatch);
+}
+
+export function getImportBatchById(id: string): ImportBatch | null {
+  const row = db.prepare(
+    `SELECT id, type, file_type, file_name, record_count, success_count, failure_count,
+     status, errors, original_content, parent_batch_id, coverage_start_date, coverage_end_date, created_at
+     FROM import_batches WHERE id = ?`
+  ).get(id) as any;
+  if (!row) return null;
+  return rowToImportBatch(row);
 }
 
 export function hasBatch(batchId: string): boolean {
   const row = db.prepare("SELECT 1 FROM import_batches WHERE id = ?").get(batchId) as any;
   return !!row;
+}
+
+export function getBatchRecords(batchId: string): ImportBatchRecord[] {
+  const rows = db.prepare(
+    `SELECT id, batch_id, row_index, record_data, success, error_message, is_duplicate, created_at
+     FROM import_batch_records WHERE batch_id = ? ORDER BY row_index ASC`
+  ).all(batchId) as any[];
+  return rows.map(row => ({
+    id: row.id,
+    batchId: row.batch_id,
+    rowIndex: row.row_index,
+    recordData: JSON.parse(row.record_data),
+    success: row.success === 1,
+    errorMessage: row.error_message,
+    isDuplicate: row.is_duplicate === 1,
+    createdAt: row.created_at,
+  }));
+}
+
+export function insertBatchRecord(
+  batchId: string,
+  rowIndex: number,
+  recordData: any,
+  success: boolean,
+  errorMessage?: string,
+  isDuplicate = false
+): ImportBatchRecord {
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO import_batch_records (id, batch_id, row_index, record_data, success, error_message, is_duplicate, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, batchId, rowIndex, JSON.stringify(recordData), success ? 1 : 0, errorMessage || null, isDuplicate ? 1 : 0, now);
+  return {
+    id,
+    batchId,
+    rowIndex,
+    recordData,
+    success,
+    errorMessage: errorMessage || null,
+    isDuplicate,
+    createdAt: now,
+  };
+}
+
+export function getChildBatches(parentBatchId: string): ImportBatch[] {
+  const rows = db.prepare(
+    `SELECT id, type, file_type, file_name, record_count, success_count, failure_count,
+     status, errors, original_content, parent_batch_id, coverage_start_date, coverage_end_date, created_at
+     FROM import_batches WHERE parent_batch_id = ? ORDER BY created_at ASC`
+  ).all(parentBatchId) as any[];
+  return rows.map(rowToImportBatch);
+}
+
+export function getImportBatchDetail(id: string): ImportBatchDetail | null {
+  const batch = getImportBatchById(id);
+  if (!batch) return null;
+  const records = getBatchRecords(id);
+  const childBatches = getChildBatches(id);
+  const parentBatch = batch.parentBatchId ? getImportBatchById(batch.parentBatchId) : null;
+  return {
+    ...batch,
+    records,
+    childBatches,
+    parentBatch,
+  };
 }
 
 export function insertMeterReading(reading: Omit<MeterReading, "id"> & { id?: string }): MeterReading {
@@ -379,25 +477,64 @@ export function createImportBatch(
   type: ImportBatchType,
   recordCount: number,
   status: ImportBatchStatus,
-  errors?: string,
-  batchId?: string
+  options?: {
+    errors?: string;
+    batchId?: string;
+    fileType?: string;
+    fileName?: string;
+    successCount?: number;
+    failureCount?: number;
+    originalContent?: string;
+    parentBatchId?: string;
+    coverageStartDate?: string;
+    coverageEndDate?: string;
+  }
 ): ImportBatch {
-  const id = batchId || uuidv4();
+  const id = options?.batchId || uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    "INSERT INTO import_batches (id, type, record_count, status, errors, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(id, type, recordCount, status, errors || null, now);
-  return { id, type, recordCount, status, errors: errors || null, createdAt: now };
+    `INSERT INTO import_batches (id, type, file_type, file_name, record_count, success_count, failure_count,
+     status, errors, original_content, parent_batch_id, coverage_start_date, coverage_end_date, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    type,
+    options?.fileType || null,
+    options?.fileName || null,
+    recordCount,
+    options?.successCount ?? 0,
+    options?.failureCount ?? 0,
+    status,
+    options?.errors || null,
+    options?.originalContent || null,
+    options?.parentBatchId || null,
+    options?.coverageStartDate || null,
+    options?.coverageEndDate || null,
+    now
+  );
+  return getImportBatchById(id)!;
 }
 
 export function updateImportBatchStatus(
   batchId: string,
   status: ImportBatchStatus,
-  errors?: string
+  options?: {
+    errors?: string;
+    successCount?: number;
+    failureCount?: number;
+  }
 ): void {
+  const existing = getImportBatchById(batchId);
+  if (!existing) return;
   db.prepare(
-    "UPDATE import_batches SET status = ?, errors = ? WHERE id = ?"
-  ).run(status, errors || null, batchId);
+    `UPDATE import_batches SET status = ?, errors = ?, success_count = ?, failure_count = ? WHERE id = ?`
+  ).run(
+    status,
+    options?.errors ?? existing.errors,
+    options?.successCount ?? existing.successCount,
+    options?.failureCount ?? existing.failureCount,
+    batchId
+  );
 }
 
 export function getDashboardStats(): DashboardStats {

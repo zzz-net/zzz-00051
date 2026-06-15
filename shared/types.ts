@@ -71,13 +71,45 @@ export interface ReviewLog {
 export type ImportBatchType = "readings" | "hours" | "maintenance";
 export type ImportBatchStatus = "success" | "partial" | "failed";
 
+export interface ImportBatchRecord {
+  id: string;
+  batchId: string;
+  rowIndex: number;
+  recordData: any;
+  success: boolean;
+  errorMessage: string | null;
+  isDuplicate: boolean;
+  createdAt: string;
+}
+
 export interface ImportBatch {
   id: string;
   type: ImportBatchType;
+  fileType: string | null;
+  fileName: string | null;
   recordCount: number;
+  successCount: number;
+  failureCount: number;
   status: ImportBatchStatus;
   errors: string | null;
+  originalContent: string | null;
+  parentBatchId: string | null;
+  coverageStartDate: string | null;
+  coverageEndDate: string | null;
   createdAt: string;
+}
+
+export interface ImportBatchDetail extends ImportBatch {
+  records: ImportBatchRecord[];
+  childBatches: ImportBatch[];
+  parentBatch: ImportBatch | null;
+}
+
+export interface BatchFilter {
+  type?: ImportBatchType;
+  status?: ImportBatchStatus;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface DashboardStats {

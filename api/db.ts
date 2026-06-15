@@ -97,11 +97,33 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS import_batches (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,
+    file_type TEXT,
+    file_name TEXT,
     record_count INTEGER NOT NULL,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     errors TEXT,
+    original_content TEXT,
+    parent_batch_id TEXT,
+    coverage_start_date TEXT,
+    coverage_end_date TEXT,
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS import_batch_records (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL,
+    row_index INTEGER NOT NULL,
+    record_data TEXT NOT NULL,
+    success INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    is_duplicate INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (batch_id) REFERENCES import_batches(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_batch_records_batch ON import_batch_records(batch_id);
 
   CREATE INDEX IF NOT EXISTS idx_readings_store_date ON meter_readings(store_id, date);
   CREATE INDEX IF NOT EXISTS idx_hours_store_date ON business_hours(store_id, date);
@@ -111,5 +133,43 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_anomalies_date ON anomalies(date);
   CREATE INDEX IF NOT EXISTS idx_review_logs_anomaly ON review_logs(anomaly_id);
 `);
+
+function columnExists(table: string, column: string): boolean {
+  const row = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+  return row.some((c) => c.name === column);
+}
+
+function addColumnIfMissing(table: string, column: string, definition: string) {
+  if (!columnExists(table, column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+addColumnIfMissing("import_batches", "file_type", "TEXT");
+addColumnIfMissing("import_batches", "file_name", "TEXT");
+addColumnIfMissing("import_batches", "success_count", "INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("import_batches", "failure_count", "INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("import_batches", "original_content", "TEXT");
+addColumnIfMissing("import_batches", "parent_batch_id", "TEXT");
+addColumnIfMissing("import_batches", "coverage_start_date", "TEXT");
+addColumnIfMissing("import_batches", "coverage_end_date", "TEXT");
+
+const importBatchRecordsExists = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='import_batch_records'").get() as any) !== undefined;
+if (!importBatchRecordsExists) {
+  db.exec(`
+    CREATE TABLE import_batch_records (
+      id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      row_index INTEGER NOT NULL,
+      record_data TEXT NOT NULL,
+      success INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      is_duplicate INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (batch_id) REFERENCES import_batches(id)
+    );
+    CREATE INDEX idx_batch_records_batch ON import_batch_records(batch_id);
+  `);
+}
 
 export default db;
